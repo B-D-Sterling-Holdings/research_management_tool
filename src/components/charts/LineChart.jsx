@@ -5,7 +5,7 @@ import { Chart, registerables } from 'chart.js';
 
 Chart.register(...registerables);
 
-export default function LineChart({ labels, data, label = '', color = '#4a9eff', formatY, fillArea = true }) {
+export default function LineChart({ labels, data, label = '', color = '#10b981', formatY, fillArea = true }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -17,8 +17,8 @@ export default function LineChart({ labels, data, label = '', color = '#4a9eff',
     const ctx = canvasRef.current.getContext('2d');
 
     const gradient = ctx.createLinearGradient(0, 0, 0, 280);
-    gradient.addColorStop(0, color + '30');
-    gradient.addColorStop(1, color + '00');
+    gradient.addColorStop(0, color + '25');
+    gradient.addColorStop(1, color + '02');
 
     chartRef.current = new Chart(ctx, {
       type: 'line',
@@ -44,12 +44,14 @@ export default function LineChart({ labels, data, label = '', color = '#4a9eff',
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#111',
-            borderColor: '#2a2a2a',
+            backgroundColor: 'rgba(255,255,255,0.95)',
+            borderColor: '#e5e7eb',
             borderWidth: 1,
-            titleColor: '#e8e8e8',
-            bodyColor: '#a0a0a0',
-            padding: 10,
+            titleColor: '#111827',
+            bodyColor: '#6b7280',
+            padding: 12,
+            cornerRadius: 12,
+            boxPadding: 4,
             callbacks: {
               label: (ctx) => formatY ? formatY(ctx.parsed.y) : ctx.parsed.y.toFixed(2),
             },
@@ -57,18 +59,18 @@ export default function LineChart({ labels, data, label = '', color = '#4a9eff',
         },
         scales: {
           x: {
-            grid: { color: '#1e1e1e' },
-            ticks: { color: '#666', maxTicksLimit: 8, font: { size: 10 } },
-            border: { color: '#1e1e1e' },
+            grid: { color: '#f3f4f6' },
+            ticks: { color: '#9ca3af', maxTicksLimit: 8, font: { size: 10, family: 'Plus Jakarta Sans' } },
+            border: { color: '#e5e7eb' },
           },
           y: {
-            grid: { color: '#1e1e1e' },
+            grid: { color: '#f3f4f6' },
             ticks: {
-              color: '#666',
-              font: { size: 10 },
+              color: '#9ca3af',
+              font: { size: 10, family: 'Plus Jakarta Sans' },
               callback: formatY || ((v) => v),
             },
-            border: { color: '#1e1e1e' },
+            border: { color: '#e5e7eb' },
           },
         },
       },
@@ -80,7 +82,7 @@ export default function LineChart({ labels, data, label = '', color = '#4a9eff',
   }, [labels, data, label, color, formatY, fillArea]);
 
   if (!data || !data.length) {
-    return <div className="text-[#666] text-sm text-center py-8">No data available</div>;
+    return <div className="text-gray-400 text-sm text-center py-8">No data available</div>;
   }
 
   return (

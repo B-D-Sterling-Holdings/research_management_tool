@@ -2,24 +2,36 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import { Briefcase, Search } from 'lucide-react';
 
 const navLinks = [
   { href: '/holdings', label: 'Our Holdings', icon: Briefcase },
-  { href: '/research', label: 'Research Management', icon: Search },
+  { href: '/research', label: 'Research', icon: Search },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-[#1e1e1e]">
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3 no-underline">
-          <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#4a9eff] to-[#2563eb] flex items-center justify-center">
-            <span className="text-white font-bold text-sm">RM</span>
+    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      scrolled
+        ? 'bg-white/80 backdrop-blur-md shadow-md'
+        : 'bg-white/60 backdrop-blur-sm'
+    }`}>
+      <div className="max-w-7xl mx-auto px-6 lg:px-12 h-16 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-3 no-underline group">
+          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <span className="text-white font-extrabold text-sm">RM</span>
           </div>
-          <span className="text-[#e8e8e8] font-semibold text-lg tracking-tight">
+          <span className="text-gray-900 font-bold text-lg tracking-tight group-hover:text-emerald-700 transition-colors">
             Research Manager
           </span>
         </Link>
@@ -32,15 +44,18 @@ export default function Navbar() {
                 key={href}
                 href={href}
                 className={`
-                  flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium no-underline transition-all
+                  relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold no-underline transition-all duration-200
                   ${isActive
-                    ? 'bg-[#4a9eff]/12 text-[#4a9eff] border border-[#4a9eff]/25'
-                    : 'text-[#a0a0a0] hover:text-[#e8e8e8] hover:bg-[#1a1a1a] border border-transparent'
+                    ? 'text-emerald-700 bg-emerald-50'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
                   }
                 `}
               >
                 <Icon size={16} />
                 {label}
+                {isActive && (
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-emerald-500 rounded-full" />
+                )}
               </Link>
             );
           })}

@@ -6,7 +6,6 @@ import Card from '@/components/Card';
 import StatCard from '@/components/StatCard';
 import LineChart from '@/components/charts/LineChart';
 import BarChart from '@/components/charts/BarChart';
-import ConfirmModal from '@/components/ConfirmModal';
 import Toast from '@/components/Toast';
 import { formatMoney, formatLargeNumber, formatShareCount, formatNumber } from '@/lib/formatters';
 
@@ -20,15 +19,15 @@ export default function ResearchPage() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [liveQuote, setLiveQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
 
-  // Load portfolio holdings
   useEffect(() => {
     fetch('/api/portfolio')
       .then(r => r.json())
       .then(data => {
         setPortfolio(data);
         setLoading(false);
-        // Auto-select first ticker
         if (data.holdings?.length && !selectedTicker) {
           setSelectedTicker(data.holdings[0].ticker);
         }
@@ -36,7 +35,6 @@ export default function ResearchPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  // Load ticker data when selection changes
   const loadTickerData = useCallback(async (ticker) => {
     if (!ticker) return;
     setTickerLoading(true);
@@ -52,7 +50,19 @@ export default function ResearchPage() {
   }, []);
 
   useEffect(() => {
-    if (selectedTicker) loadTickerData(selectedTicker);
+    if (selectedTicker) {
+      loadTickerData(selectedTicker);
+      // Fetch live quote
+      setLiveQuote(null);
+      setQuoteLoading(true);
+      fetch(`/api/quotes?tickers=${selectedTicker}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.quotes?.[selectedTicker]) setLiveQuote(data.quotes[selectedTicker]);
+        })
+        .catch(() => {})
+        .finally(() => setQuoteLoading(false));
+    }
   }, [selectedTicker, loadTickerData]);
 
   const generateData = async () => {
@@ -82,9 +92,9 @@ export default function ResearchPage() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="skeleton h-12 w-64 rounded mb-6" />
-        <div className="skeleton h-96 rounded-lg" />
+      <div className="max-w-7xl mx-auto px-6 lg:px-12 py-8">
+        <div className="skeleton h-14 w-72 rounded-2xl mb-8" />
+        <div className="skeleton h-96 rounded-3xl" />
       </div>
     );
   }
@@ -93,57 +103,60 @@ export default function ResearchPage() {
   const cashVal = portfolio?.cash || 0;
   const totalAum = holdings.reduce((s, h) => s + h.shares * h.cost_basis, 0) + cashVal;
 
-  // Selected holding info
   const holding = holdings.find(h => h.ticker === selectedTicker);
   const holdingValue = holding ? holding.shares * holding.cost_basis : 0;
   const pctAum = totalAum > 0 ? ((holdingValue / totalAum) * 100).toFixed(1) : '0.0';
 
-  // Data availability
   const dataExists = tickerData?.dataExists;
 
-  // Chart data preparation
   const makeQuarterLabel = (row) => `${row.quarter}'${String(row.year).slice(-2)}`;
 
   const revenueLabels = tickerData?.revenue?.map(makeQuarterLabel) || [];
   const revenueData = tickerData?.revenue?.map(r => r.revenue) || [];
-
   const epsLabels = tickerData?.eps?.map(makeQuarterLabel) || [];
   const epsData = tickerData?.eps?.map(e => e.eps_diluted) || [];
-
   const fcfLabels = tickerData?.fcf?.map(makeQuarterLabel) || [];
   const fcfData = tickerData?.fcf?.map(f => f.free_cash_flow) || [];
-
   const marginLabels = tickerData?.operating_margins?.map(makeQuarterLabel) || [];
   const marginData = tickerData?.operating_margins?.map(m => m.operating_margin * 100) || [];
-
   const sharesLabels = tickerData?.buybacks?.map(makeQuarterLabel) || [];
   const sharesData = tickerData?.buybacks?.map(b => b.shares_outstanding) || [];
-
   const priceLabels = tickerData?.daily_prices?.map(p => p.date) || [];
   const priceData = tickerData?.daily_prices?.map(p => p.close) || [];
-
-  // PE ratio and FCF yield history from valuation
   const peLabels = tickerData?.valuation?.peHistory?.map(makeQuarterLabel) || [];
   const peData = tickerData?.valuation?.peHistory?.map(p => p.pe_ratio) || [];
-
   const fcfYieldLabels = tickerData?.valuation?.fcfYieldHistory?.map(makeQuarterLabel) || [];
   const fcfYieldData = tickerData?.valuation?.fcfYieldHistory?.map(f => f.fcf_yield) || [];
-
   const valuation = tickerData?.valuation || {};
 
+  // Use live price for data points, recompute ratios
+  const livePrice = liveQuote?.price || null;
+  const csvPrice = valuation.currentPrice ? Number(valuation.currentPrice) : null;
+  const displayPrice = livePrice || csvPrice;
+
+  // Recompute PE, FCF yield, P/S using live price if available
+  const csvEps = epsData.length > 0 ? epsData[epsData.length - 1] : null;
+  const csvFcf = fcfData.length > 0 ? fcfData[fcfData.length - 1] : null;
+  const csvRevenue = revenueData.length > 0 ? revenueData[revenueData.length - 1] : null;
+  const csvShares = sharesData.length > 0 ? sharesData[sharesData.length - 1] : null;
+
+  const livePe = (displayPrice && csvEps && csvEps > 0) ? displayPrice / csvEps : (valuation.peRatio ? Number(valuation.peRatio) : null);
+  const liveFcfYield = (displayPrice && csvFcf && csvShares && csvShares > 0) ? (csvFcf / (displayPrice * csvShares)) * 100 : (valuation.fcfYield ? Number(valuation.fcfYield) : null);
+  const livePs = (displayPrice && csvRevenue && csvShares && csvShares > 0) ? (displayPrice * csvShares) / csvRevenue : (valuation.priceToSales ? Number(valuation.priceToSales) : null);
+
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-7xl mx-auto px-6 lg:px-12 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-[#e8e8e8]">Research Management</h1>
-          <p className="text-sm text-[#666] mt-1">Analyze company fundamentals for your holdings</p>
+          <h1 className="text-3xl font-bold text-gray-900">Research</h1>
+          <p className="text-gray-500 mt-1">Analyze company fundamentals for your holdings</p>
         </div>
         {dataExists && (
           <button
             onClick={() => setShowUpdateModal(true)}
             disabled={generating}
-            className="flex items-center gap-2 px-3 py-2 text-sm border border-[#2a2a2a] rounded-md text-[#a0a0a0] hover:text-[#e8e8e8] hover:border-[#4a9eff] transition-colors disabled:opacity-40"
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-white border border-gray-200 rounded-2xl text-gray-700 hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-md transition-all duration-200 disabled:opacity-40"
           >
             <RefreshCw size={14} className={generating ? 'animate-spin' : ''} />
             Update Data
@@ -152,13 +165,13 @@ export default function ResearchPage() {
       </div>
 
       {/* Ticker Selector */}
-      <Card className="mb-6">
+      <Card className="mb-8">
         <div className="flex items-center gap-4">
-          <label className="text-xs text-[#666] uppercase tracking-wider font-semibold">Select Company</label>
+          <label className="text-xs text-gray-500 uppercase tracking-wider font-bold">Select Company</label>
           <select
             value={selectedTicker}
             onChange={e => setSelectedTicker(e.target.value)}
-            className="bg-[#0a0a0a] border border-[#1e1e1e] rounded px-3 py-2 text-sm text-[#e8e8e8] outline-none focus:border-[#4a9eff] transition-colors min-w-[200px]"
+            className="bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 min-w-[200px]"
           >
             <option value="">-- Select Ticker --</option>
             {holdings.map(h => (
@@ -169,162 +182,102 @@ export default function ResearchPage() {
       </Card>
 
       {!selectedTicker ? (
-        <div className="text-center py-16 text-[#666]">
-          <p className="text-lg mb-2">Select a ticker to view research data</p>
-          <p className="text-sm">Choose from your portfolio holdings above</p>
+        <div className="text-center py-20">
+          <p className="text-lg text-gray-400 mb-2">Select a ticker to view research data</p>
+          <p className="text-sm text-gray-300">Choose from your portfolio holdings above</p>
         </div>
       ) : tickerLoading ? (
-        <div className="space-y-4">
-          <div className="skeleton h-24 rounded-lg" />
-          <div className="skeleton h-64 rounded-lg" />
+        <div className="space-y-6">
+          <div className="skeleton h-28 rounded-2xl" />
+          <div className="skeleton h-72 rounded-3xl" />
         </div>
       ) : !dataExists ? (
-        /* No data - prompt to generate */
-        <Card className="text-center py-12">
-          <AlertTriangle size={48} className="text-amber-500 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-[#e8e8e8] mb-2">
+        <Card className="text-center py-16">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-5">
+            <AlertTriangle size={28} className="text-amber-500" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">
             No data generated for {selectedTicker}
           </h2>
-          <p className="text-sm text-[#a0a0a0] mb-6 max-w-md mx-auto">
-            Data for this ticker has not been generated yet. Would you like to fetch fundamentals
-            from Alpha Vantage and price data from Yahoo Finance?
+          <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto leading-relaxed">
+            Data for this ticker has not been generated yet. Fetch fundamentals from Alpha Vantage and price data from Yahoo Finance.
           </p>
           <button
             onClick={() => setShowGenerateModal(true)}
             disabled={generating}
-            className="px-6 py-2.5 bg-[#4a9eff] text-black font-semibold rounded-md hover:bg-[#3b8de6] transition-colors disabled:opacity-40"
+            className="px-8 py-3 bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-semibold rounded-2xl hover:from-emerald-700 hover:to-emerald-600 shadow-lg shadow-emerald-200/50 hover:shadow-xl transition-all duration-200 disabled:opacity-40"
           >
             {generating ? 'Generating...' : 'Generate Data'}
           </button>
         </Card>
       ) : (
-        /* Data exists - render all charts */
         <>
           {/* Position Snapshot */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <StatCard label="Current % of AUM" value={`${pctAum}%`} color="blue" />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+            <StatCard label="Current % of AUM" value={`${pctAum}%`} />
             <StatCard
               label="Cost Value"
               value={formatMoney(holdingValue)}
-              sub={holding ? `${holding.shares.toFixed(4)} shares × $${holding.cost_basis.toFixed(2)}` : ''}
-              color="blue"
+              sub={holding ? `${holding.shares.toFixed(4)} shares x $${holding.cost_basis.toFixed(2)}` : ''}
             />
-            <StatCard label="Ticker" value={selectedTicker} color="blue" />
+            <StatCard label="Ticker" value={selectedTicker} />
           </div>
 
           {/* Price Chart */}
-          <Card title="Price" className="mb-4">
-            <LineChart
-              labels={priceLabels}
-              data={priceData}
-              label="Price"
-              color="#4a9eff"
-              formatY={(v) => `$${v.toFixed(2)}`}
-            />
+          <Card title="Price" className="mb-6">
+            <LineChart labels={priceLabels} data={priceData} label="Price" color="#10b981" formatY={(v) => `$${v.toFixed(2)}`} />
           </Card>
 
           {/* Data Points */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <div className="bg-[#111] border border-[#1e1e1e] rounded-lg p-4">
-              <p className="text-xs text-[#666] uppercase tracking-wider mb-1">Price</p>
-              <p className="text-lg font-bold text-[#e8e8e8]">
-                {valuation.currentPrice ? `$${Number(valuation.currentPrice).toFixed(2)}` : '—'}
-              </p>
-            </div>
-            <div className="bg-[#111] border border-[#1e1e1e] rounded-lg p-4">
-              <p className="text-xs text-[#666] uppercase tracking-wider mb-1">PE Ratio</p>
-              <p className="text-lg font-bold text-[#e8e8e8]">
-                {valuation.peRatio ? formatNumber(valuation.peRatio, 1) : '—'}
-              </p>
-            </div>
-            <div className="bg-[#111] border border-[#1e1e1e] rounded-lg p-4">
-              <p className="text-xs text-[#666] uppercase tracking-wider mb-1">FCF Yield</p>
-              <p className="text-lg font-bold text-[#e8e8e8]">
-                {valuation.fcfYield ? `${Number(valuation.fcfYield).toFixed(1)}%` : '—'}
-              </p>
-            </div>
-            <div className="bg-[#111] border border-[#1e1e1e] rounded-lg p-4">
-              <p className="text-xs text-[#666] uppercase tracking-wider mb-1">Price / Sales</p>
-              <p className="text-lg font-bold text-[#e8e8e8]">
-                {valuation.priceToSales ? formatNumber(valuation.priceToSales, 1) : '—'}
-              </p>
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            {[
+              { label: 'Price', value: displayPrice ? `$${displayPrice.toFixed(2)}` : '—' },
+              { label: 'PE Ratio', value: livePe ? formatNumber(livePe, 1) : '—' },
+              { label: 'FCF Yield', value: liveFcfYield ? `${liveFcfYield.toFixed(1)}%` : '—' },
+              { label: 'Price / Sales', value: livePs ? formatNumber(livePs, 1) : '—' },
+            ].map(({ label, value }) => (
+              <div key={label} className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1.5">{label}</p>
+                {quoteLoading ? (
+                  <div className="h-7 w-20 rounded-lg skeleton" />
+                ) : (
+                  <p className="text-xl font-extrabold gradient-text">{value}</p>
+                )}
+              </div>
+            ))}
           </div>
 
           {/* Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <Card title="Revenue">
-              <BarChart
-                labels={revenueLabels}
-                data={revenueData}
-                label="Revenue"
-                formatY={(v) => formatLargeNumber(v)}
-              />
+              <BarChart labels={revenueLabels} data={revenueData} label="Revenue" formatY={(v) => formatLargeNumber(v)} />
             </Card>
-
             <Card title="Operating Margins">
-              <LineChart
-                labels={marginLabels}
-                data={marginData}
-                label="Op Margin"
-                color="#f59e0b"
-                formatY={(v) => `${v.toFixed(1)}%`}
-              />
+              <LineChart labels={marginLabels} data={marginData} label="Op Margin" color="#f59e0b" formatY={(v) => `${v.toFixed(1)}%`} />
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <Card title="Outstanding Shares">
-              <BarChart
-                labels={sharesLabels}
-                data={sharesData}
-                label="Shares"
-                formatY={(v) => formatShareCount(v)}
-                colorPositive="#4a9eff"
-                colorNegative="#4a9eff"
-              />
+              <BarChart labels={sharesLabels} data={sharesData} label="Shares" formatY={(v) => formatShareCount(v)} colorPositive="#06b6d4" colorNegative="#06b6d4" />
             </Card>
-
             <Card title="EPS (Diluted)">
-              <BarChart
-                labels={epsLabels}
-                data={epsData}
-                label="EPS"
-                formatY={(v) => `$${v.toFixed(2)}`}
-              />
+              <BarChart labels={epsLabels} data={epsData} label="EPS" formatY={(v) => `$${v.toFixed(2)}`} />
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <Card title="Free Cash Flow">
-              <BarChart
-                labels={fcfLabels}
-                data={fcfData}
-                label="FCF"
-                formatY={(v) => formatLargeNumber(v)}
-              />
+              <BarChart labels={fcfLabels} data={fcfData} label="FCF" formatY={(v) => formatLargeNumber(v)} />
             </Card>
-
             <Card title="PE Ratio">
-              <LineChart
-                labels={peLabels}
-                data={peData}
-                label="PE Ratio"
-                color="#a78bfa"
-                formatY={(v) => v.toFixed(1)}
-              />
+              <LineChart labels={peLabels} data={peData} label="PE Ratio" color="#8b5cf6" formatY={(v) => v.toFixed(1)} />
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <Card title="FCF Yield">
-              <LineChart
-                labels={fcfYieldLabels}
-                data={fcfYieldData}
-                label="FCF Yield"
-                color="#10b981"
-                formatY={(v) => `${v.toFixed(1)}%`}
-              />
+              <LineChart labels={fcfYieldLabels} data={fcfYieldData} label="FCF Yield" color="#10b981" formatY={(v) => `${v.toFixed(1)}%`} />
             </Card>
           </div>
         </>
@@ -334,25 +287,19 @@ export default function ResearchPage() {
       {showGenerateModal && (
         <div className="modal-overlay" onClick={() => setShowGenerateModal(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-[#e8e8e8] mb-2">Generate Data for {selectedTicker}</h3>
-            <p className="text-sm text-[#a0a0a0] mb-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">Generate Data for {selectedTicker}</h3>
+            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
               This will fetch fundamental data from Alpha Vantage and price data from Yahoo Finance.
               The data will be saved locally so you only need to do this once.
             </p>
-            <p className="text-xs text-amber-500 mb-4">
-              Note: Alpha Vantage free tier allows 5 API calls/minute. Generation takes ~30 seconds due to rate limiting.
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2 mb-5">
+              Note: Alpha Vantage free tier allows 5 API calls/minute. Generation takes ~30 seconds.
             </p>
             <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowGenerateModal(false)}
-                className="px-4 py-2 text-sm border border-[#2a2a2a] rounded-md text-[#a0a0a0] hover:text-[#e8e8e8] transition-colors"
-              >
+              <button onClick={() => setShowGenerateModal(false)} className="px-5 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 hover:text-gray-900 hover:border-gray-300 transition-all duration-200">
                 Cancel
               </button>
-              <button
-                onClick={generateData}
-                className="px-4 py-2 text-sm bg-[#4a9eff] text-black font-semibold rounded-md hover:bg-[#3b8de6] transition-colors"
-              >
+              <button onClick={generateData} className="px-5 py-2.5 text-sm bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-emerald-600 shadow-md hover:shadow-lg hover:shadow-emerald-200/50 transition-all duration-200">
                 Generate Data
               </button>
             </div>
@@ -364,25 +311,19 @@ export default function ResearchPage() {
       {showUpdateModal && (
         <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-[#e8e8e8] mb-2">Update Data for {selectedTicker}</h3>
-            <p className="text-sm text-[#a0a0a0] mb-4">
-              This will re-fetch the latest fundamental and price data from the APIs, overwriting the existing data.
+            <h3 className="text-lg font-bold text-gray-900 mb-3">Update Data for {selectedTicker}</h3>
+            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+              This will re-fetch the latest fundamental and price data, overwriting the existing data.
               Use this after an earnings release or if the data is stale.
             </p>
-            <p className="text-xs text-amber-500 mb-4">
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2 mb-5">
               This will use your Alpha Vantage API quota. Are you sure?
             </p>
             <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowUpdateModal(false)}
-                className="px-4 py-2 text-sm border border-[#2a2a2a] rounded-md text-[#a0a0a0] hover:text-[#e8e8e8] transition-colors"
-              >
+              <button onClick={() => setShowUpdateModal(false)} className="px-5 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 hover:text-gray-900 hover:border-gray-300 transition-all duration-200">
                 Cancel
               </button>
-              <button
-                onClick={generateData}
-                className="px-4 py-2 text-sm bg-amber-500 text-black font-semibold rounded-md hover:bg-amber-600 transition-colors"
-              >
+              <button onClick={generateData} className="px-5 py-2.5 text-sm bg-gradient-to-r from-amber-500 to-amber-400 text-white font-semibold rounded-xl hover:from-amber-600 hover:to-amber-500 shadow-md hover:shadow-lg transition-all duration-200">
                 Update Data
               </button>
             </div>

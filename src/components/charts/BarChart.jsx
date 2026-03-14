@@ -25,8 +25,10 @@ export default function BarChart({ labels, data, label = '', formatY, colorPosit
         datasets: [{
           label,
           data,
-          backgroundColor: colors,
-          borderRadius: 3,
+          backgroundColor: colors.map(c => c + '80'),
+          borderColor: colors,
+          borderWidth: 1,
+          borderRadius: 6,
           borderSkipped: false,
         }],
       },
@@ -37,12 +39,14 @@ export default function BarChart({ labels, data, label = '', formatY, colorPosit
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#111',
-            borderColor: '#2a2a2a',
+            backgroundColor: 'rgba(255,255,255,0.95)',
+            borderColor: '#e5e7eb',
             borderWidth: 1,
-            titleColor: '#e8e8e8',
-            bodyColor: '#a0a0a0',
-            padding: 10,
+            titleColor: '#111827',
+            bodyColor: '#6b7280',
+            padding: 12,
+            cornerRadius: 12,
+            boxPadding: 4,
             callbacks: {
               label: (ctx) => formatY ? formatY(ctx.parsed.y) : ctx.parsed.y.toFixed(2),
             },
@@ -50,18 +54,18 @@ export default function BarChart({ labels, data, label = '', formatY, colorPosit
         },
         scales: {
           x: {
-            grid: { color: '#1e1e1e' },
-            ticks: { color: '#666', maxTicksLimit: 10, font: { size: 10 } },
-            border: { color: '#1e1e1e' },
+            grid: { color: '#f3f4f6' },
+            ticks: { color: '#9ca3af', maxTicksLimit: 10, font: { size: 10, family: 'Plus Jakarta Sans' } },
+            border: { color: '#e5e7eb' },
           },
           y: {
-            grid: { color: '#1e1e1e' },
+            grid: { color: '#f3f4f6' },
             ticks: {
-              color: '#666',
-              font: { size: 10 },
+              color: '#9ca3af',
+              font: { size: 10, family: 'Plus Jakarta Sans' },
               callback: formatY || ((v) => v),
             },
-            border: { color: '#1e1e1e' },
+            border: { color: '#e5e7eb' },
           },
         },
       },
@@ -73,7 +77,7 @@ export default function BarChart({ labels, data, label = '', formatY, colorPosit
   }, [labels, data, label, formatY, colorPositive, colorNegative]);
 
   if (!data || !data.length) {
-    return <div className="text-[#666] text-sm text-center py-8">No data available</div>;
+    return <div className="text-gray-400 text-sm text-center py-8">No data available</div>;
   }
 
   return (
