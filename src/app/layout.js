@@ -1,7 +1,6 @@
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
-import { CacheProvider } from "@/lib/CacheContext";
+import { AuthProvider } from "@/lib/AuthContext";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -18,12 +17,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={`${plusJakarta.variable} font-[family-name:var(--font-plus-jakarta)] antialiased`}>
-        <CacheProvider>
-          <Navbar />
-          <main className="pt-20">
-            {children}
-          </main>
-        </CacheProvider>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

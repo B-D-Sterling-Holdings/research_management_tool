@@ -4,7 +4,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Briefcase, Search, Eye } from 'lucide-react';
+import { Briefcase, Search, Eye, LogOut } from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
 
 const navLinks = [
   { href: '/holdings', label: 'Our Holdings', icon: Briefcase },
@@ -14,6 +15,7 @@ const navLinks = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { logout } = useAuth();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -67,6 +69,17 @@ export default function Navbar() {
               </Link>
             );
           })}
+
+          <button
+            onClick={() => {
+              logout();
+              window.location.href = '/login';
+            }}
+            className="ml-4 p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all duration-200"
+            title="Sign out"
+          >
+            <LogOut size={16} />
+          </button>
         </div>
       </div>
     </nav>
