@@ -80,8 +80,9 @@ def fetch_risk(holdings, lookback_days=252):
     # VaR 95%
     var_95_pct = float(np.percentile(port_returns, 5)) if len(port_returns) > 20 else None
 
-    # Beta vs SPY
+    # Beta & Correlation vs SPY
     beta = None
+    corr_spy = None
     if not spy_prices.empty:
         spy_ret = spy_prices.pct_change().dropna()
         common_idx = returns_df.index.intersection(spy_ret.index)
@@ -91,6 +92,8 @@ def fetch_risk(holdings, lookback_days=252):
             cov = np.cov(port_common, spy_common)
             if cov[1, 1] > 0:
                 beta = float(cov[0, 1] / cov[1, 1])
+            corr_matrix_spy = np.corrcoef(port_common.flatten(), spy_common.flatten())
+            corr_spy = float(corr_matrix_spy[0, 1])
 
     # Correlation matrix
     corr = returns_df[valid_tickers].corr()
@@ -117,6 +120,87 @@ def fetch_risk(holdings, lookback_days=252):
         "matrix": corr.values.tolist(),
     }
 
+    # === Risk Attribution ===
+    # Covariance matrix (annualized)
+    cov_matrix = returns_df[valid_tickers].cov().values * 252
+
+    # Ensure positive semi-definite via eigenvalue clipping
+    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+    if np.any(eigenvalues < 0):
+        eigenvalues = np.maximum(eigenvalues, 0)
+        cov_matrix = eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
+        psd_adjusted = True
+    else:
+        psd_adjusted = False
+
+    w = weight_arr
+    sigma_w = cov_matrix @ w                     # Σw vector
+    port_var = float(w @ sigma_w)                # wᵀΣw
+    port_vol = float(np.sqrt(max(port_var, 0)))  # σ_p
+
+    # Standalone annualized vol per asset
+    standalone_vols = np.sqrt(np.diag(cov_matrix))
+
+    # Risk contributions
+    attribution = []
+    for i, t in enumerate(valid_tickers):
+        wi = float(w[i])
+        sigma_wi = float(sigma_w[i])              # (Σw)_i
+        mrc_i = sigma_wi / port_vol if port_vol > 0 else 0   # MRC_i
+        rc_i = wi * mrc_i                         # RC_i = w_i * MRC_i
+        pct_rc_i = rc_i / port_vol if port_vol > 0 else 0    # %RC_i
+
+        # Weight vs risk contribution comparison
+        diff = pct_rc_i - wi
+        if diff > 0.01:
+            risk_label = "over contributing"
+        elif diff < -0.01:
+            risk_label = "under contributing"
+        else:
+            risk_label = "in line"
+
+        attribution.append({
+            "ticker": t,
+            "weight": round(wi * 100, 2),
+            "standaloneVol": round(float(standalone_vols[i]) * 100, 2),
+            "covWithPortfolio": round(sigma_wi * 100, 4),
+            "marginalContrib": round(mrc_i * 100, 4),
+            "totalContrib": round(rc_i * 100, 4),
+            "pctOfTotalRisk": round(pct_rc_i * 100, 2),
+            "riskLabel": risk_label,
+        })
+
+    # Sort by percent of total risk descending
+    attribution.sort(key=lambda x: x["pctOfTotalRisk"], reverse=True)
+
+    # Concentration metrics
+    pct_rc_values = [a["pctOfTotalRisk"] for a in attribution]
+    top3_risk = sum(pct_rc_values[:3]) if len(pct_rc_values) >= 3 else sum(pct_rc_values)
+    top5_risk = sum(pct_rc_values[:5]) if len(pct_rc_values) >= 5 else sum(pct_rc_values)
+
+    # Effective number of risk contributors: 1 / Σ(%RC_i as decimal)²
+    pct_rc_dec = [p / 100 for p in pct_rc_values]
+    eff_contributors = 1.0 / sum(x**2 for x in pct_rc_dec) if sum(x**2 for x in pct_rc_dec) > 0 else 0
+
+    # Weights normalized flag
+    raw_weight_sum = sum(weights.get(t, 0) for t in valid_tickers)
+    weights_normalized = abs(raw_weight_sum - 1.0) > 0.01
+
+    risk_attribution = {
+        "stocks": attribution,
+        "summary": {
+            "portfolioVariance": round(port_var * 10000, 2),       # in bps²
+            "portfolioVolatility": round(port_vol * 100, 2),       # annualized %
+            "sumTotalContrib": round(sum(a["totalContrib"] for a in attribution), 4),
+            "sumPctContrib": round(sum(a["pctOfTotalRisk"] for a in attribution), 2),
+            "effectiveContributors": round(eff_contributors, 2),
+            "top3RiskPct": round(top3_risk, 2),
+            "top5RiskPct": round(top5_risk, 2),
+            "weightsNormalized": weights_normalized,
+            "psdAdjusted": psd_adjusted,
+        },
+    }
+
     return {
         "metrics": {
             "volatility": round(ann_vol * 100, 2) if ann_vol else None,
@@ -124,10 +208,12 @@ def fetch_risk(holdings, lookback_days=252):
             "sharpe": round(sharpe, 2) if sharpe else None,
             "var95Pct": round(var_95_pct * 100, 2) if var_95_pct else None,
             "beta": round(beta, 2) if beta else None,
+            "correlationSPY": round(corr_spy, 4) if corr_spy is not None else None,
             "portfolioCorrelation": round(portfolio_corr, 4) if portfolio_corr is not None else None,
             "daysUsed": len(port_returns),
         },
         "correlation": corr_matrix,
+        "riskAttribution": risk_attribution,
     }
 
 if __name__ == "__main__":

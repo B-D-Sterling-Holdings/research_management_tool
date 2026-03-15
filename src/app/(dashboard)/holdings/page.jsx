@@ -8,10 +8,10 @@ import Treemap from '@/components/Treemap';
 import Toast from '@/components/Toast';
 import { formatMoney, formatMoneyPrecise, formatPct, formatLargeNumber } from '@/lib/formatters';
 import { useCache } from '@/lib/CacheContext';
-import { Doughnut } from 'react-chartjs-2';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Doughnut, Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
 
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 export default function HoldingsPage() {
   const cache = useCache();
@@ -473,59 +473,190 @@ export default function HoldingsPage() {
             <Card className="text-center py-16">
               <p className="text-gray-400">{riskData?.error || 'Need at least 2 positions with price history to compute risk metrics.'}</p>
             </Card>
-          ) : (
-            <>
-              <p className="text-xs text-gray-400 mb-6 font-medium">
-                Constant-weight basket, per-date renormalized, up to 252 trading days ({riskData.metrics.daysUsed} used)
-              </p>
+          ) : (() => {
+            const m = riskData.metrics;
+            const ra = riskData.riskAttribution;
+            const stocks = ra?.stocks || [];
+            const summary = ra?.summary || {};
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 mb-8">
-                <StatCard label="Ann. Volatility" value={riskData.metrics.volatility != null ? `${riskData.metrics.volatility}%` : '—'} />
-                <StatCard label="Max Drawdown" value={riskData.metrics.maxDrawdown != null ? `${riskData.metrics.maxDrawdown}%` : '—'} />
-                <StatCard label="Sharpe Ratio" value={riskData.metrics.sharpe != null ? riskData.metrics.sharpe : '—'} />
-                <StatCard label="VaR 95%" value={riskData.metrics.var95Pct != null ? `${riskData.metrics.var95Pct}%` : '—'} />
-                <StatCard label="VaR USD" value={riskData.metrics.var95Pct != null ? formatMoney(Math.abs(riskData.metrics.var95Pct / 100) * totalAum) : '—'} />
-                <StatCard label="Beta" value={riskData.metrics.beta != null ? riskData.metrics.beta : 'N/A'} />
-              </div>
+            return (
+              <>
+                <p className="text-xs text-gray-400 mb-6 font-medium">
+                  Constant-weight basket · {m.daysUsed} trading days
+                  {summary.weightsNormalized && <span className="ml-2 text-amber-500">(weights normalized)</span>}
+                  {summary.psdAdjusted && <span className="ml-2 text-amber-500">(covariance matrix adjusted for PSD)</span>}
+                </p>
 
-              {riskData.correlation && riskData.correlation.tickers?.length >= 2 && (
-                <Card title="Correlation Matrix">
-                  <div className="overflow-x-auto">
-                    <div className="inline-grid gap-[2px]" style={{ gridTemplateColumns: `60px repeat(${riskData.correlation.tickers.length}, 60px)` }}>
-                      <div />
-                      {riskData.correlation.tickers.map(t => (
-                        <div key={`h-${t}`} className="text-center text-xs font-bold text-gray-700 py-2">{t}</div>
-                      ))}
-                      {riskData.correlation.tickers.map((rowTicker, i) => (
-                        <React.Fragment key={`row-${rowTicker}`}>
-                          <div className="text-xs font-bold text-gray-700 flex items-center justify-center">{rowTicker}</div>
-                          {riskData.correlation.matrix[i].map((val, j) => {
-                            const isDiag = i === j;
-                            const abs = Math.abs(val);
-                            let bg;
-                            if (isDiag) {
-                              bg = '#e5e7eb';
-                            } else if (val >= 0) {
-                              const t = abs;
-                              bg = `rgba(16, 185, 129, ${0.1 + t * 0.5})`;
-                            } else {
-                              const t = abs;
-                              bg = `rgba(239, 68, 68, ${0.1 + t * 0.5})`;
-                            }
-                            return (
-                              <div key={`${i}-${j}`} className={`flex items-center justify-center text-xs font-bold rounded-lg ${isDiag ? 'text-gray-500' : val >= 0 ? 'text-emerald-800' : 'text-red-800'}`} style={{ background: bg, height: 44 }}>
-                                {val.toFixed(2)}
-                              </div>
-                            );
-                          })}
-                        </React.Fragment>
-                      ))}
+                {/* Portfolio Summary + Attribution Summary */}
+                {stocks.length > 0 && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                      <Card>
+                        <div className="text-2xl font-bold text-gray-900">{summary.portfolioVolatility}%</div>
+                        <div className="text-xs text-gray-400 mt-1">Portfolio Volatility</div>
+                      </Card>
+                      <Card>
+                        <div className="text-2xl font-bold text-gray-900">{m.maxDrawdown != null ? `${m.maxDrawdown}%` : '—'}</div>
+                        <div className="text-xs text-gray-400 mt-1">Max Drawdown</div>
+                      </Card>
+                      <Card>
+                        <div className="text-2xl font-bold text-gray-900">{m.var95Pct != null ? `${m.var95Pct}%` : '—'}</div>
+                        <div className="text-xs text-gray-400 mt-1">1 Day VaR (%)</div>
+                      </Card>
+                      <Card>
+                        <div className="text-2xl font-bold text-gray-900">{summary.top5RiskPct}%</div>
+                        <div className="text-xs text-gray-400 mt-1">Top 5 Risk Contribution</div>
+                      </Card>
                     </div>
-                  </div>
-                </Card>
-              )}
-            </>
-          )}
+
+                    {/* Charts: Bar + Correlation side by side */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 items-stretch">
+                      {/* % Risk Contribution Bar Chart */}
+                      <Card title="Risk Contribution by Stock" className="flex flex-col">
+                        <div className="flex-1" style={{ minHeight: Math.max(200, stocks.length * 32) }}>
+                          <Bar
+                            data={{
+                              labels: stocks.map(s => s.ticker),
+                              datasets: [
+                                {
+                                  label: '% Contrib to Vol',
+                                  data: stocks.map(s => s.pctOfTotalRisk),
+                                  backgroundColor: stocks.map(s =>
+                                    s.riskLabel === 'over contributing' ? 'rgba(239,68,68,0.7)' :
+                                    s.riskLabel === 'under contributing' ? 'rgba(16,185,129,0.7)' :
+                                    'rgba(59,130,246,0.7)'
+                                  ),
+                                  borderRadius: 4,
+                                },
+                                {
+                                  label: 'Weight',
+                                  data: stocks.map(s => s.weight),
+                                  backgroundColor: 'rgba(0,0,128,0.15)',
+                                  borderColor: 'rgba(0,0,128,0.3)',
+                                  borderWidth: 1,
+                                  borderRadius: 4,
+                                },
+                              ],
+                            }}
+                            options={{
+                              indexAxis: 'y',
+                              responsive: true,
+                              maintainAspectRatio: false,
+                              plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                  backgroundColor: 'rgba(255,255,255,0.95)',
+                                  titleColor: '#111827', bodyColor: '#6b7280',
+                                  borderColor: '#e5e7eb', borderWidth: 1, cornerRadius: 8, padding: 10,
+                                  callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.x.toFixed(2)}%` },
+                                },
+                              },
+                              scales: {
+                                x: { grid: { display: false }, ticks: { callback: v => `${v}%`, font: { size: 11 } } },
+                                y: { grid: { display: false }, ticks: { font: { size: 11, weight: '600' } } },
+                              },
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-4 mt-3 text-[11px] text-gray-500 justify-center flex-wrap">
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm inline-block" style={{ backgroundColor: 'rgba(0,0,128,0.25)' }} /> Weight</span>
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-red-400 inline-block" /> Over contributing</span>
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-blue-400 inline-block" /> In line</span>
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-emerald-400 inline-block" /> Under contributing</span>
+                        </div>
+                      </Card>
+
+                      {/* Correlation Matrix */}
+                      {riskData.correlation && riskData.correlation.tickers?.length >= 2 && (
+                        <Card title="Correlation Matrix" className="flex flex-col">
+                          <div className="w-full flex-1 flex items-center">
+                            <div className="grid gap-[2px]" style={{ gridTemplateColumns: `40px repeat(${riskData.correlation.tickers.length}, 1fr)` }}>
+                              <div />
+                              {riskData.correlation.tickers.map(t => (
+                                <div key={`h-${t}`} className="text-center text-[10px] font-bold text-gray-700 py-1 truncate">{t}</div>
+                              ))}
+                              {riskData.correlation.tickers.map((rowTicker, i) => (
+                                <React.Fragment key={`row-${rowTicker}`}>
+                                  <div className="text-[10px] font-bold text-gray-700 flex items-center justify-center truncate">{rowTicker}</div>
+                                  {riskData.correlation.matrix[i].map((val, j) => {
+                                    const isDiag = i === j;
+                                    const absVal = Math.abs(val);
+                                    let bg;
+                                    if (isDiag) bg = '#e5e7eb';
+                                    else if (val >= 0) bg = `rgba(16, 185, 129, ${0.1 + absVal * 0.5})`;
+                                    else bg = `rgba(239, 68, 68, ${0.1 + absVal * 0.5})`;
+                                    return (
+                                      <div key={`${i}-${j}`} className={`flex items-center justify-center text-[10px] font-bold rounded ${isDiag ? 'text-gray-500' : val >= 0 ? 'text-emerald-800' : 'text-red-800'}`} style={{ background: bg, aspectRatio: '1', minHeight: 28 }}>
+                                        {val.toFixed(2)}
+                                      </div>
+                                    );
+                                  })}
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        </Card>
+                      )}
+                    </div>
+
+                    {/* Risk Attribution Table */}
+                    <Card title="Stock-Level Risk Attribution" className="mb-6">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-100">
+                              {['Ticker', 'Weight', 'Vol (Ann.)', 'Cov w/ Port', 'Marginal', 'Risk Contribution', '% Contrib to Vol', 'Status'].map(col => (
+                                <th key={col} className="text-right py-3 px-2 text-xs font-bold text-gray-400 uppercase tracking-wider first:text-left">{col}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stocks.map(s => (
+                              <tr key={s.ticker} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                                <td className="py-3 px-2 font-bold text-gray-900">{s.ticker}</td>
+                                <td className="text-right py-3 px-2 text-gray-600 tabular-nums">{s.weight.toFixed(2)}%</td>
+                                <td className="text-right py-3 px-2 text-gray-600 tabular-nums">{s.standaloneVol.toFixed(2)}%</td>
+                                <td className="text-right py-3 px-2 text-gray-600 tabular-nums">{s.covWithPortfolio.toFixed(2)}%</td>
+                                <td className="text-right py-3 px-2 text-gray-600 tabular-nums">{s.marginalContrib.toFixed(2)}%</td>
+                                <td className="text-right py-3 px-2 text-gray-600 tabular-nums">{s.totalContrib.toFixed(2)}%</td>
+                                <td className={`text-right py-3 px-2 font-semibold tabular-nums ${
+                                  s.riskLabel === 'over contributing' ? 'text-red-600' :
+                                  s.riskLabel === 'under contributing' ? 'text-emerald-600' :
+                                  'text-blue-600'
+                                }`}>{s.pctOfTotalRisk.toFixed(2)}%</td>
+                                <td className="text-right py-3 px-2">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                    s.riskLabel === 'over contributing' ? 'bg-red-50 text-red-600' :
+                                    s.riskLabel === 'under contributing' ? 'bg-emerald-50 text-emerald-600' :
+                                    'bg-blue-50 text-blue-600'
+                                  }`}>
+                                    {s.riskLabel}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-gray-200 font-bold text-gray-900">
+                              <td className="py-3 px-2">Total</td>
+                              <td className="text-right py-3 px-2 tabular-nums">100.00%</td>
+                              <td className="text-right py-3 px-2" />
+                              <td className="text-right py-3 px-2" />
+                              <td className="text-right py-3 px-2" />
+                              <td className="text-right py-3 px-2 tabular-nums">{summary.sumTotalContrib?.toFixed(2)}%</td>
+                              <td className="text-right py-3 px-2 tabular-nums">{summary.sumPctContrib?.toFixed(2)}%</td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </Card>
+                  </>
+                )}
+
+              </>
+            );
+          })()}
         </>
       )}
 
