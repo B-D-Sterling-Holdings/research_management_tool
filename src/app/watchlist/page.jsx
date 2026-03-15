@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useCache } from '@/lib/CacheContext';
 import { formatMoneyPrecise, formatPct, formatLargeNumber } from '@/lib/formatters';
-import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare } from 'lucide-react';
+import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -489,45 +489,227 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
   );
 }
 
+/* ── Watchlist Selector Dropdown ──────────────────────────────── */
+function WatchlistSelector({ watchlists, activeId, onSwitch, onCreate, onRename, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const dropdownRef = useRef(null);
+
+  const activeList = watchlists.find(w => w.id === activeId);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpen(false);
+        setCreatingNew(false);
+        setRenamingId(null);
+        setConfirmDeleteId(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleCreate = () => {
+    const name = newName.trim();
+    if (!name) return;
+    onCreate(name);
+    setNewName('');
+    setCreatingNew(false);
+  };
+
+  const handleRename = (id) => {
+    const name = renameValue.trim();
+    if (!name) return;
+    onRename(id, name);
+    setRenamingId(null);
+    setRenameValue('');
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:border-gray-400 rounded-lg px-3 py-2 transition-colors shadow-sm"
+      >
+        <List size={15} className="text-gray-400" />
+        <span className="max-w-[200px] truncate">{activeList?.name || 'Watchlist'}</span>
+        <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden">
+          <div className="max-h-64 overflow-y-auto">
+            {watchlists.map(wl => (
+              <div
+                key={wl.id}
+                className={`flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors ${
+                  wl.id === activeId ? 'bg-emerald-50/60' : ''
+                }`}
+              >
+                {renamingId === wl.id ? (
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); handleRename(wl.id); }}
+                    className="flex-1 flex items-center gap-1.5"
+                  >
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      className="flex-1 text-sm text-gray-800 bg-white border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-300"
+                      onKeyDown={(e) => { if (e.key === 'Escape') { setRenamingId(null); } }}
+                    />
+                    <button type="submit" className="text-emerald-600 hover:text-emerald-700 p-0.5">
+                      <Check size={14} />
+                    </button>
+                  </form>
+                ) : confirmDeleteId === wl.id ? (
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className="text-xs text-red-600 font-medium">Delete &ldquo;{wl.name}&rdquo;?</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="text-[11px] font-semibold text-gray-500 hover:text-gray-700 bg-gray-100 px-2 py-0.5 rounded"
+                      >
+                        No
+                      </button>
+                      <button
+                        onClick={() => { onDelete(wl.id); setConfirmDeleteId(null); }}
+                        className="text-[11px] font-semibold text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded"
+                      >
+                        Yes
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { onSwitch(wl.id); setOpen(false); }}
+                      className="flex-1 text-left text-sm text-gray-800 font-medium truncate"
+                    >
+                      {wl.name}
+                      <span className="text-xs text-gray-400 ml-2">
+                        {wl.stocks.length} stock{wl.stocks.length !== 1 ? 's' : ''}
+                      </span>
+                    </button>
+                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setRenamingId(wl.id); setRenameValue(wl.name); }}
+                        className="text-gray-300 hover:text-gray-500 p-1 rounded transition-colors"
+                        title="Rename"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      {watchlists.length > 1 && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(wl.id); }}
+                          className="text-gray-300 hover:text-red-400 p-1 rounded transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Create new watchlist */}
+          <div className="border-t border-gray-100 px-3 py-2.5">
+            {creatingNew ? (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleCreate(); }}
+                className="flex items-center gap-1.5"
+              >
+                <input
+                  autoFocus
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Watchlist name..."
+                  className="flex-1 text-sm text-gray-800 bg-white border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-300"
+                  onKeyDown={(e) => { if (e.key === 'Escape') { setCreatingNew(false); setNewName(''); } }}
+                />
+                <button type="submit" className="text-emerald-600 hover:text-emerald-700 p-0.5">
+                  <Check size={14} />
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => setCreatingNew(true)}
+                className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:text-emerald-700 transition-colors w-full"
+              >
+                <Plus size={14} />
+                New Watchlist
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Page ────────────────────────────────────────────────── */
 export default function WatchlistPage() {
   const cache = useCache();
-  const [stocks, setStocks] = useState([]);
+  const [allData, setAllData] = useState(null); // { watchlists: [...], activeWatchlistId }
   const [quotes, setQuotes] = useState({});
   const [tickerInput, setTickerInput] = useState('');
   const [loading, setLoading] = useState(true);
 
+  const watchlists = allData?.watchlists || [];
+  const activeId = allData?.activeWatchlistId || 'default';
+  const activeWatchlist = watchlists.find(w => w.id === activeId);
+  const stocks = activeWatchlist?.stocks || [];
+
   // Load watchlist
-  const loadWatchlist = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       const cached = cache.get('watchlist_data');
-      if (cached) {
-        setStocks(cached.stocks || []);
+      if (cached?.watchlists) {
+        setAllData(cached);
         setLoading(false);
-        return cached.stocks || [];
+        return cached;
       }
       const res = await fetch('/api/watchlist');
       const data = await res.json();
-      setStocks(data.stocks || []);
+      setAllData(data);
       cache.set('watchlist_data', data);
       setLoading(false);
-      return data.stocks || [];
+      return data;
     } catch {
       setLoading(false);
-      return [];
+      return null;
     }
   }, [cache]);
 
-  // Save watchlist
-  const saveWatchlist = useCallback(async (updatedStocks) => {
-    const data = { stocks: updatedStocks };
-    cache.set('watchlist_data', data);
+  // Save all data
+  const saveData = useCallback(async (updatedData) => {
+    setAllData(updatedData);
+    cache.set('watchlist_data', updatedData);
     await fetch('/api/watchlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(updatedData),
     });
   }, [cache]);
+
+  // Helper: update active watchlist's stocks and save
+  const saveStocks = useCallback(async (updatedStocks) => {
+    const updatedData = {
+      ...allData,
+      watchlists: allData.watchlists.map(wl =>
+        wl.id === activeId ? { ...wl, stocks: updatedStocks } : wl
+      ),
+    };
+    await saveData(updatedData);
+  }, [allData, activeId, saveData]);
 
   // Fetch quotes
   const fetchQuotes = useCallback(async (stockList) => {
@@ -549,12 +731,74 @@ export default function WatchlistPage() {
   }, [cache]);
 
   useEffect(() => {
-    loadWatchlist().then(s => {
-      if (s.length > 0) fetchQuotes(s);
+    loadData().then(data => {
+      if (data) {
+        // Collect all tickers across all watchlists for quotes
+        const allStocks = (data.watchlists || []).flatMap(wl => wl.stocks || []);
+        if (allStocks.length > 0) fetchQuotes(allStocks);
+      }
     });
-  }, [loadWatchlist, fetchQuotes]);
+  }, [loadData, fetchQuotes]);
 
-  // Add stock
+  // ── Watchlist management ──
+
+  const switchWatchlist = async (id) => {
+    const updatedData = { ...allData, activeWatchlistId: id };
+    await saveData(updatedData);
+    // Fetch quotes for any new tickers
+    const wl = updatedData.watchlists.find(w => w.id === id);
+    if (wl) {
+      const newTickers = wl.stocks.filter(s => !quotes[s.ticker]);
+      if (newTickers.length > 0) {
+        try {
+          const res = await fetch(`/api/quotes?tickers=${newTickers.map(s => s.ticker).join(',')}`);
+          const data = await res.json();
+          if (data.quotes) {
+            setQuotes(prev => {
+              const merged = { ...prev, ...data.quotes };
+              cache.set('watchlist_quotes', merged);
+              return merged;
+            });
+          }
+        } catch {}
+      }
+    }
+  };
+
+  const createWatchlist = async (name) => {
+    const id = `wl_${Date.now()}`;
+    const newWl = { id, name, stocks: [] };
+    const updatedData = {
+      ...allData,
+      watchlists: [...allData.watchlists, newWl],
+      activeWatchlistId: id,
+    };
+    await saveData(updatedData);
+  };
+
+  const renameWatchlist = async (id, name) => {
+    const updatedData = {
+      ...allData,
+      watchlists: allData.watchlists.map(wl =>
+        wl.id === id ? { ...wl, name } : wl
+      ),
+    };
+    await saveData(updatedData);
+  };
+
+  const deleteWatchlist = async (id) => {
+    const remaining = allData.watchlists.filter(wl => wl.id !== id);
+    if (remaining.length === 0) return;
+    const updatedData = {
+      ...allData,
+      watchlists: remaining,
+      activeWatchlistId: allData.activeWatchlistId === id ? remaining[0].id : allData.activeWatchlistId,
+    };
+    await saveData(updatedData);
+  };
+
+  // ── Stock operations (scoped to active watchlist) ──
+
   const addStock = async () => {
     const ticker = tickerInput.trim().toUpperCase();
     if (!ticker || stocks.some(s => s.ticker === ticker)) {
@@ -570,9 +814,8 @@ export default function WatchlistPage() {
       addedAt: new Date().toISOString(),
     };
     const updated = [...stocks, newStock];
-    setStocks(updated);
     setTickerInput('');
-    await saveWatchlist(updated);
+    await saveStocks(updated);
     // Fetch quote for new ticker
     try {
       const res = await fetch(`/api/quotes?tickers=${ticker}`);
@@ -584,43 +827,29 @@ export default function WatchlistPage() {
           return merged;
         });
       }
-    } catch {
-      // silent
-    }
+    } catch {}
   };
 
-  // Remove stock
   const removeStock = async (ticker) => {
-    const updated = stocks.filter(s => s.ticker !== ticker);
-    setStocks(updated);
-    await saveWatchlist(updated);
+    await saveStocks(stocks.filter(s => s.ticker !== ticker));
   };
 
-  // Move stage
   const moveStock = async (ticker, newStage) => {
-    const updated = stocks.map(s =>
+    await saveStocks(stocks.map(s =>
       s.ticker === ticker ? { ...s, stage: newStage } : s
-    );
-    setStocks(updated);
-    await saveWatchlist(updated);
+    ));
   };
 
-  // Update note
   const updateNote = async (ticker, note) => {
-    const updated = stocks.map(s =>
+    await saveStocks(stocks.map(s =>
       s.ticker === ticker ? { ...s, note } : s
-    );
-    setStocks(updated);
-    await saveWatchlist(updated);
+    ));
   };
 
-  // Update research fields (fundamentalsGlance or dislocationNotes)
   const updateResearch = async (ticker, field, value) => {
-    const updated = stocks.map(s =>
+    await saveStocks(stocks.map(s =>
       s.ticker === ticker ? { ...s, [field]: value } : s
-    );
-    setStocks(updated);
-    await saveWatchlist(updated);
+    ));
   };
 
   const watching = stocks.filter(s => s.stage === 'watching');
@@ -646,12 +875,22 @@ export default function WatchlistPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Watchlist</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
-              {researching.length > 0 && ` · ${researching.length} in research`}
-            </p>
+          <div className="flex items-center gap-6">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Watchlist</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
+                {researching.length > 0 && ` · ${researching.length} in research`}
+              </p>
+            </div>
+            <WatchlistSelector
+              watchlists={watchlists}
+              activeId={activeId}
+              onSwitch={switchWatchlist}
+              onCreate={createWatchlist}
+              onRename={renameWatchlist}
+              onDelete={deleteWatchlist}
+            />
           </div>
 
           {/* Add stock */}
