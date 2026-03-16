@@ -11,6 +11,7 @@ const navLinks = [
   { href: '/holdings', label: 'Our Holdings', icon: Briefcase },
   { href: '/watchlist', label: 'Watchlist', icon: Eye },
   { href: '/research', label: 'Research', icon: Search },
+  { href: '/position-review', label: 'Position Review', icon: Search },
   { href: '/documents', label: 'Documents', icon: FolderOpen },
 ];
 

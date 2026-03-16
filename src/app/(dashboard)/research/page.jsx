@@ -1,64 +1,261 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Download, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { RefreshCw, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn, ClipboardList, FlaskConical, Square, CheckSquare } from 'lucide-react';
 import Card from '@/components/Card';
 import StatCard from '@/components/StatCard';
-import LineChart from '@/components/charts/LineChart';
-import BarChart from '@/components/charts/BarChart';
 import FundamentalChart from '@/components/charts/FundamentalChart';
 import PriceChart from '@/components/charts/PriceChart';
 import Toast from '@/components/Toast';
-import { formatMoney, formatLargeNumber, formatShareCount, formatNumber } from '@/lib/formatters';
+import { formatLargeNumber, formatNumber } from '@/lib/formatters';
 import { useCache } from '@/lib/CacheContext';
 import ValuationModel from '@/components/ValuationModel';
 import RichTextArea from '@/components/RichTextArea';
 
+const FUNDAMENTALS_BOXES = [
+  { key: 'revenueGrowth', label: 'Revenue and Growth', color: 'blue', placeholder: 'Revenue CAGR, segment growth, unit economics, pricing, and demand drivers...' },
+  { key: 'profitability', label: 'Profitability', color: 'emerald', placeholder: 'Margins, operating leverage, FCF conversion, EPS quality, and ROIC...' },
+  { key: 'capitalReturn', label: 'Capital Returned to Shareholders', color: 'violet', placeholder: 'Buybacks, dividends, share count trends, and capital allocation discipline...' },
+  { key: 'misc', label: 'Misc', color: 'gray', placeholder: 'Balance sheet context, cyclicality, one-time items, regulation, or anything else...' },
+];
+
+const BOX_STYLES = {
+  blue: { bg: 'bg-blue-50/50', border: 'border-blue-200/60', ring: 'focus:ring-blue-200 focus:border-blue-300', label: 'text-blue-600' },
+  emerald: { bg: 'bg-emerald-50/50', border: 'border-emerald-200/60', ring: 'focus:ring-emerald-200 focus:border-emerald-300', label: 'text-emerald-600' },
+  violet: { bg: 'bg-violet-50/50', border: 'border-violet-200/60', ring: 'focus:ring-violet-200 focus:border-violet-300', label: 'text-violet-600' },
+  gray: { bg: 'bg-gray-50', border: 'border-gray-200', ring: 'focus:ring-gray-200 focus:border-gray-300', label: 'text-gray-600' },
+};
+
+function autoExpand(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+function normalizeQuestionItems(items) {
+  return (items || []).map(item => (
+    typeof item === 'string'
+      ? { text: item, done: false, answer: '' }
+      : { text: item?.text || '', done: !!item?.done, answer: item?.answer || '' }
+  ));
+}
+
+function updateStockInData(data, ticker, updater) {
+  if (!data || !ticker) return data;
+  return {
+    ...data,
+    watchlists: (data.watchlists || []).map(watchlist => ({
+      ...watchlist,
+      stocks: (watchlist.stocks || []).map(stock => (
+        stock.ticker === ticker ? updater(stock) : stock
+      )),
+    })),
+  };
+}
+
+function QuestionSection({
+  title,
+  subtitle,
+  icon: Icon,
+  accentClasses,
+  items,
+  onAdd,
+  onToggleDone,
+  onChangeQuestion,
+  onSaveQuestion,
+  onChangeAnswer,
+  onSaveAnswer,
+  onRemove,
+}) {
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] ${accentClasses.label}`}>
+            <Icon size={13} />
+            {title}
+          </div>
+          <p className="text-sm text-gray-500 mt-2">{subtitle}</p>
+        </div>
+        <button
+          onClick={onAdd}
+          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${accentClasses.button}`}
+        >
+          <Plus size={13} />
+          Add Question
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className={`mt-6 rounded-2xl border border-dashed p-8 text-center ${accentClasses.empty}`}>
+          <p className="text-sm font-medium text-gray-500">No questions yet</p>
+          <p className="text-xs text-gray-400 mt-1">Add prompts from the current research workflow, then write the answer directly below each one.</p>
+        </div>
+      ) : (
+        <div className="mt-6 space-y-5">
+          {items.map((item, idx) => (
+            <div key={idx} className={`rounded-2xl border p-5 ${accentClasses.card}`}>
+              <div className="flex items-start gap-3 mb-4">
+                <button
+                  onClick={() => onToggleDone(idx, !item.done)}
+                  className={`mt-0.5 flex-shrink-0 transition-colors ${accentClasses.icon}`}
+                  title={item.done ? 'Mark incomplete' : 'Mark complete'}
+                >
+                  {item.done ? <CheckSquare size={18} /> : <Square size={18} />}
+                </button>
+                <div className="flex-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                    Question {idx + 1}
+                  </label>
+                  <input
+                    type="text"
+                    value={item.text}
+                    onChange={(e) => onChangeQuestion(idx, e.target.value)}
+                    onBlur={(e) => onSaveQuestion(idx, e.target.value)}
+                    placeholder="Write the research question..."
+                    className="mt-2 w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                  />
+                </div>
+                <button
+                  onClick={() => onRemove(idx)}
+                  className="flex-shrink-0 p-2 text-gray-300 hover:text-red-400 transition-colors"
+                  title="Remove question"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                  Answer
+                </label>
+                <textarea
+                  value={item.answer || ''}
+                  onChange={(e) => onChangeAnswer(idx, e.target.value)}
+                  onBlur={(e) => onSaveAnswer(idx, e.target.value)}
+                  onInput={(e) => autoExpand(e.target)}
+                  placeholder="Write the full answer here..."
+                  rows={8}
+                  className="mt-2 w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function ResearchPage() {
   const cache = useCache();
-  const [portfolio, setPortfolio] = useState(() => cache.get('research_portfolio') || null);
-  const [selectedTicker, setSelectedTicker] = useState(() => cache.get('research_selectedTicker') || '');
-  const [tickerData, setTickerData] = useState(() => cache.get('research_tickerData') || null);
-  const [loading, setLoading] = useState(() => !cache.get('research_portfolio'));
+  const [allData, setAllData] = useState(() => cache.get('deep_research_watchlist') || null);
+  const [selectedTicker, setSelectedTicker] = useState(() => cache.get('deep_research_selectedTicker') || '');
+  const [tickerData, setTickerData] = useState(() => cache.get('deep_research_tickerData') || null);
+  const [loading, setLoading] = useState(() => !cache.get('deep_research_watchlist'));
   const [tickerLoading, setTickerLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [liveQuote, setLiveQuote] = useState(() => cache.get('research_liveQuote') || null);
-  const [quoteLoading, setQuoteLoading] = useState(() => !cache.get('research_liveQuote') && !!cache.get('research_selectedTicker'));
-  const [activeResearchTab, setActiveResearchTab] = useState(() => cache.get('research_activeTab') || 'fundamentals');
+  const [liveQuote, setLiveQuote] = useState(() => cache.get('deep_research_liveQuote') || null);
+  const [quoteLoading, setQuoteLoading] = useState(() => !cache.get('deep_research_liveQuote') && !!cache.get('deep_research_selectedTicker'));
+  const [activeResearchTab, setActiveResearchTab] = useState(() => cache.get('deep_research_activeTab') || 'fundamentals');
   const [thesis, setThesis] = useState(null);
   const [thesisLoading, setThesisLoading] = useState(false);
   const [thesisSaving, setThesisSaving] = useState(false);
   const [thesisDirty, setThesisDirty] = useState(false);
-  const saveTimeoutRef = useRef(null);
   const modelRef = useRef(null);
   const [exporting, setExporting] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
 
-  useEffect(() => {
-    fetch('/api/portfolio')
-      .then(r => r.json())
-      .then(data => {
-        setPortfolio(data);
-        cache.set('research_portfolio', data);
+  const researchStocks = useMemo(() => (
+    (allData?.watchlists || []).flatMap(watchlist =>
+      (watchlist.stocks || [])
+        .filter(stock => stock.stage === 'research')
+        .map(stock => ({
+          ...stock,
+          watchlistId: watchlist.id,
+          watchlistName: watchlist.name,
+        }))
+    )
+  ), [allData]);
+
+  const selectedStock = useMemo(
+    () => researchStocks.find(stock => stock.ticker === selectedTicker) || null,
+    [researchStocks, selectedTicker]
+  );
+
+  const dueDiligenceItems = useMemo(
+    () => normalizeQuestionItems(selectedStock?.dueDiligenceItems),
+    [selectedStock?.dueDiligenceItems]
+  );
+
+  const dislocationItems = useMemo(
+    () => normalizeQuestionItems(selectedStock?.dislocationItems),
+    [selectedStock?.dislocationItems]
+  );
+
+  const persistWatchlistData = useCallback(async (updatedData) => {
+    if (!updatedData) return;
+    setAllData(updatedData);
+    cache.set('deep_research_watchlist', updatedData);
+    try {
+      await fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedData),
+      });
+    } catch {
+      setToast({ message: 'Failed to save watchlist research changes', type: 'error' });
+    }
+  }, [cache]);
+
+  const updateSelectedStockLocal = useCallback((updater) => {
+    setAllData(prev => {
+      const updated = updateStockInData(prev, selectedTicker, updater);
+      cache.set('deep_research_watchlist', updated);
+      return updated;
+    });
+  }, [cache, selectedTicker]);
+
+  const persistSelectedStock = useCallback(async (updater) => {
+    let updatedData;
+    setAllData(prev => {
+      updatedData = updateStockInData(prev, selectedTicker, updater);
+      cache.set('deep_research_watchlist', updatedData);
+      return updatedData;
+    });
+    await persistWatchlistData(updatedData);
+  }, [cache, persistWatchlistData, selectedTicker]);
+
+  const loadResearchStocks = useCallback(async () => {
+    try {
+      const cached = cache.get('deep_research_watchlist');
+      if (cached?.watchlists) {
+        setAllData(cached);
         setLoading(false);
-        if (data.holdings?.length && !selectedTicker) {
-          const first = data.holdings[0].ticker;
-          setSelectedTicker(first);
-          cache.set('research_selectedTicker', first);
-        }
-      })
-      .catch(() => setLoading(false));
-  }, []);
+      }
+
+      const res = await fetch('/api/watchlist');
+      const data = await res.json();
+      setAllData(data);
+      cache.set('deep_research_watchlist', data);
+      setLoading(false);
+      return data;
+    } catch {
+      setLoading(false);
+      return null;
+    }
+  }, [cache]);
 
   const loadTickerData = useCallback(async (ticker) => {
     if (!ticker) return;
-    // Use cache if available for this ticker
-    const cached = cache.get(`research_tickerData_${ticker}`);
+    const cached = cache.get(`deep_research_tickerData_${ticker}`);
     if (cached) {
       setTickerData(cached);
-      cache.set('research_tickerData', cached);
+      cache.set('deep_research_tickerData', cached);
       return;
     }
     setTickerLoading(true);
@@ -66,9 +263,9 @@ export default function ResearchPage() {
       const res = await fetch(`/api/ticker/${ticker}`);
       const data = await res.json();
       setTickerData(data);
-      cache.set('research_tickerData', data);
-      cache.set(`research_tickerData_${ticker}`, data);
-    } catch (e) {
+      cache.set('deep_research_tickerData', data);
+      cache.set(`deep_research_tickerData_${ticker}`, data);
+    } catch {
       setToast({ message: `Failed to load data for ${ticker}`, type: 'error' });
     } finally {
       setTickerLoading(false);
@@ -76,33 +273,50 @@ export default function ResearchPage() {
   }, [cache]);
 
   useEffect(() => {
-    if (selectedTicker) {
-      cache.set('research_selectedTicker', selectedTicker);
-      loadTickerData(selectedTicker);
-      // Only fetch quote if not cached for this ticker
-      const cachedQuote = cache.get(`research_quote_${selectedTicker}`);
-      if (cachedQuote) {
-        setLiveQuote(cachedQuote);
-        setQuoteLoading(false);
-      } else {
-        setLiveQuote(null);
-        setQuoteLoading(true);
-        fetch(`/api/quotes?tickers=${selectedTicker}`)
-          .then(r => r.json())
-          .then(data => {
-            if (data.quotes?.[selectedTicker]) {
-              setLiveQuote(data.quotes[selectedTicker]);
-              cache.set('research_liveQuote', data.quotes[selectedTicker]);
-              cache.set(`research_quote_${selectedTicker}`, data.quotes[selectedTicker]);
-            }
-          })
-          .catch(() => {})
-          .finally(() => setQuoteLoading(false));
-      }
-    }
-  }, [selectedTicker, loadTickerData, cache]);
+    loadResearchStocks();
+  }, [loadResearchStocks]);
 
-  // Load thesis data when ticker changes
+  useEffect(() => {
+    if (!researchStocks.length) {
+      if (selectedTicker) {
+        setSelectedTicker('');
+        cache.set('deep_research_selectedTicker', '');
+      }
+      return;
+    }
+    if (!selectedTicker || !researchStocks.some(stock => stock.ticker === selectedTicker)) {
+      const nextTicker = researchStocks[0].ticker;
+      setSelectedTicker(nextTicker);
+      cache.set('deep_research_selectedTicker', nextTicker);
+    }
+  }, [cache, researchStocks, selectedTicker]);
+
+  useEffect(() => {
+    if (!selectedTicker) return;
+    cache.set('deep_research_selectedTicker', selectedTicker);
+    loadTickerData(selectedTicker);
+
+    const cachedQuote = cache.get(`deep_research_quote_${selectedTicker}`);
+    if (cachedQuote) {
+      setLiveQuote(cachedQuote);
+      setQuoteLoading(false);
+    } else {
+      setLiveQuote(null);
+      setQuoteLoading(true);
+      fetch(`/api/quotes?tickers=${selectedTicker}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.quotes?.[selectedTicker]) {
+            setLiveQuote(data.quotes[selectedTicker]);
+            cache.set('deep_research_liveQuote', data.quotes[selectedTicker]);
+            cache.set(`deep_research_quote_${selectedTicker}`, data.quotes[selectedTicker]);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setQuoteLoading(false));
+    }
+  }, [cache, loadTickerData, selectedTicker]);
+
   useEffect(() => {
     if (!selectedTicker) return;
     setThesisLoading(true);
@@ -114,9 +328,8 @@ export default function ResearchPage() {
       .finally(() => setThesisLoading(false));
   }, [selectedTicker]);
 
-  // Cache active tab
   useEffect(() => {
-    cache.set('research_activeTab', activeResearchTab);
+    cache.set('deep_research_activeTab', activeResearchTab);
   }, [activeResearchTab, cache]);
 
   const saveThesis = useCallback(async (data) => {
@@ -126,15 +339,18 @@ export default function ResearchPage() {
       const res = await fetch(`/api/thesis/${selectedTicker}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify((() => { const { _activeNewsIdx, ...rest } = data || thesis; return rest; })()),
+        body: JSON.stringify((() => {
+          const { _activeNewsIdx, ...rest } = data || thesis;
+          return rest;
+        })()),
       });
       const result = await res.json();
       if (result.success) {
         setThesisDirty(false);
-        setToast({ message: 'Thesis saved', type: 'success' });
+        setToast({ message: 'Research notes saved', type: 'success' });
       }
     } catch {
-      setToast({ message: 'Failed to save thesis', type: 'error' });
+      setToast({ message: 'Failed to save research notes', type: 'error' });
     } finally {
       setThesisSaving(false);
     }
@@ -142,27 +358,6 @@ export default function ResearchPage() {
 
   const updateThesisField = (field, value) => {
     setThesis(prev => ({ ...prev, [field]: value }));
-    setThesisDirty(true);
-  };
-
-  const updateUnderwriting = (field, value) => {
-    setThesis(prev => ({
-      ...prev,
-      underwriting: { ...prev.underwriting, [field]: value },
-    }));
-    setThesisDirty(true);
-  };
-
-  const addCoreReason = () => {
-    setThesis(prev => ({ ...prev, coreReasons: [...(prev.coreReasons || []), { title: '', description: '' }] }));
-    setThesisDirty(true);
-  };
-
-  const removeCoreReason = (idx) => {
-    setThesis(prev => ({
-      ...prev,
-      coreReasons: prev.coreReasons.filter((_, i) => i !== idx),
-    }));
     setThesisDirty(true);
   };
 
@@ -190,8 +385,26 @@ export default function ResearchPage() {
     setThesisDirty(true);
   };
 
-  const [imageUploading, setImageUploading] = useState(false);
-  const [previewImage, setPreviewImage] = useState(null);
+  const addTodo = () => {
+    const updated = { ...thesis, todos: [...(thesis.todos || []), { text: '', done: false }] };
+    setThesis(updated);
+    setThesisDirty(true);
+    saveThesis(updated);
+  };
+
+  const removeTodo = (idx) => {
+    const updated = { ...thesis, todos: (thesis.todos || []).filter((_, i) => i !== idx) };
+    setThesis(updated);
+    setThesisDirty(true);
+    saveThesis(updated);
+  };
+
+  const updateTodo = (idx, field, value) => {
+    const updated = { ...thesis, todos: (thesis.todos || []).map((todo, i) => i === idx ? { ...todo, [field]: value } : todo) };
+    setThesis(updated);
+    setThesisDirty(true);
+    if (field === 'done') saveThesis(updated);
+  };
 
   const uploadNewsImage = async (newsIdx, files) => {
     if (!files || files.length === 0 || !selectedTicker) return;
@@ -211,14 +424,13 @@ export default function ResearchPage() {
       if (newImages.length > 0) {
         setThesis(prev => ({
           ...prev,
-          newsUpdates: (prev.newsUpdates || []).map((entry, i) => {
-            if (i !== newsIdx) return entry;
-            return { ...entry, images: [...(entry.images || []), ...newImages] };
-          }),
+          newsUpdates: (prev.newsUpdates || []).map((entry, i) => (
+            i === newsIdx ? { ...entry, images: [...(entry.images || []), ...newImages] } : entry
+          )),
         }));
         setThesisDirty(true);
       }
-    } catch (e) {
+    } catch {
       setToast({ message: 'Failed to upload image', type: 'error' });
     } finally {
       setImageUploading(false);
@@ -229,51 +441,19 @@ export default function ResearchPage() {
     const entry = thesis.newsUpdates?.[newsIdx];
     const img = entry?.images?.[imgIdx];
     if (img?.path) {
-      try { await fetch(`/api/upload?path=${encodeURIComponent(img.path)}`, { method: 'DELETE' }); } catch {}
+      try {
+        await fetch(`/api/upload?path=${encodeURIComponent(img.path)}`, { method: 'DELETE' });
+      } catch {}
     }
     setThesis(prev => ({
       ...prev,
-      newsUpdates: (prev.newsUpdates || []).map((entry, i) => {
-        if (i !== newsIdx) return entry;
-        return { ...entry, images: (entry.images || []).filter((_, j) => j !== imgIdx) };
-      }),
+      newsUpdates: (prev.newsUpdates || []).map((newsEntry, i) => (
+        i === newsIdx
+          ? { ...newsEntry, images: (newsEntry.images || []).filter((_, j) => j !== imgIdx) }
+          : newsEntry
+      )),
     }));
     setThesisDirty(true);
-  };
-
-  const updateCoreReason = (idx, field, value) => {
-    setThesis(prev => ({
-      ...prev,
-      coreReasons: prev.coreReasons.map((r, i) => {
-        if (i !== idx) return r;
-        // Backward compat: if old format was a string, convert to object
-        const obj = typeof r === 'string' ? { title: r, description: '' } : r;
-        return { ...obj, [field]: value };
-      }),
-    }));
-    setThesisDirty(true);
-  };
-
-  const addTodo = () => {
-    const updated = { ...thesis, todos: [...(thesis.todos || []), { text: '', done: false }] };
-    setThesis(updated);
-    setThesisDirty(true);
-    saveThesis(updated);
-  };
-
-  const removeTodo = (idx) => {
-    const updated = { ...thesis, todos: (thesis.todos || []).filter((_, i) => i !== idx) };
-    setThesis(updated);
-    setThesisDirty(true);
-    saveThesis(updated);
-  };
-
-  const updateTodo = (idx, field, value) => {
-    const updated = { ...thesis, todos: (thesis.todos || []).map((t, i) => i === idx ? { ...t, [field]: value } : t) };
-    setThesis(updated);
-    setThesisDirty(true);
-    // Save immediately for checkbox toggles, blur handles text inputs
-    if (field === 'done') saveThesis(updated);
   };
 
   const generateData = async () => {
@@ -289,11 +469,10 @@ export default function ResearchPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setToast({ message: `Data generated for ${selectedTicker}!`, type: 'success' });
-        // Clear caches so fresh data is loaded
-        cache.set(`research_tickerData_${selectedTicker}`, null);
-        cache.set(`research_quote_${selectedTicker}`, null);
-        cache.set('research_liveQuote', null);
+        setToast({ message: `Data generated for ${selectedTicker}`, type: 'success' });
+        cache.set(`deep_research_tickerData_${selectedTicker}`, null);
+        cache.set(`deep_research_quote_${selectedTicker}`, null);
+        cache.set('deep_research_liveQuote', null);
         loadTickerData(selectedTicker);
       } else {
         setToast({ message: `Error: ${data.error}`, type: 'error' });
@@ -305,6 +484,58 @@ export default function ResearchPage() {
     }
   };
 
+  const updateFundamentalBox = (key, value, persist = false) => {
+    const nextFundamentals = {
+      revenueGrowth: '',
+      profitability: '',
+      capitalReturn: '',
+      misc: '',
+      ...(selectedStock?.fundamentals || {}),
+      [key]: value,
+    };
+    if (persist) {
+      persistSelectedStock(stock => ({ ...stock, fundamentals: nextFundamentals }));
+      return;
+    }
+    updateSelectedStockLocal(stock => ({ ...stock, fundamentals: nextFundamentals }));
+  };
+
+  const updateQuestionList = (field, items, persist = false) => {
+    if (persist) {
+      persistSelectedStock(stock => ({ ...stock, [field]: items }));
+      return;
+    }
+    updateSelectedStockLocal(stock => ({ ...stock, [field]: items }));
+  };
+
+  const addQuestion = (field) => {
+    const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
+    updateQuestionList(field, [...sourceItems, { text: '', done: false, answer: '' }], true);
+  };
+
+  const updateQuestionText = (field, idx, value, persist = false) => {
+    const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
+    const nextItems = sourceItems.map((item, i) => i === idx ? { ...item, text: value } : item);
+    updateQuestionList(field, nextItems, persist);
+  };
+
+  const updateQuestionAnswer = (field, idx, value, persist = false) => {
+    const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
+    const nextItems = sourceItems.map((item, i) => i === idx ? { ...item, answer: value } : item);
+    updateQuestionList(field, nextItems, persist);
+  };
+
+  const toggleQuestionDone = (field, idx, done) => {
+    const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
+    const nextItems = sourceItems.map((item, i) => i === idx ? { ...item, done } : item);
+    updateQuestionList(field, nextItems, true);
+  };
+
+  const removeQuestion = (field, idx) => {
+    const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
+    updateQuestionList(field, sourceItems.filter((_, i) => i !== idx), true);
+  };
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
@@ -314,16 +545,23 @@ export default function ResearchPage() {
     );
   }
 
-  const holdings = portfolio?.holdings || [];
-  const cashVal = portfolio?.cash || 0;
-  const totalAum = holdings.reduce((s, h) => s + h.shares * h.cost_basis, 0) + cashVal;
-
-  const holding = holdings.find(h => h.ticker === selectedTicker);
-  const holdingValue = holding ? holding.shares * holding.cost_basis : 0;
-  const pctAum = totalAum > 0 ? ((holdingValue / totalAum) * 100).toFixed(1) : '0.0';
+  if (!researchStocks.length) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
+        <div className="py-24 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-5">
+            <ClipboardList size={28} className="text-blue-500" />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Research</h1>
+          <p className="text-gray-500 max-w-xl mx-auto leading-relaxed">
+            Promote a ticker from Watchlist to Currently Researching, then move it into Research to open the full deep-dive workspace.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const dataExists = tickerData?.dataExists;
-
   const makeQuarterLabel = (row) => `${row.quarter}'${String(row.year).slice(-2)}`;
 
   const revenueLabels = tickerData?.revenue?.map(makeQuarterLabel) || [];
@@ -344,12 +582,10 @@ export default function ResearchPage() {
   const fcfYieldData = tickerData?.valuation?.fcfYieldHistory?.map(f => f.fcf_yield) || [];
   const valuation = tickerData?.valuation || {};
 
-  // Use live price for data points, recompute ratios
   const livePrice = liveQuote?.price || null;
   const csvPrice = valuation.currentPrice ? Number(valuation.currentPrice) : null;
   const displayPrice = livePrice || csvPrice;
 
-  // Recompute PE, FCF yield, P/S using live price if available
   const csvEps = epsData.length > 0 ? epsData[epsData.length - 1] : null;
   const csvFcf = fcfData.length > 0 ? fcfData[fcfData.length - 1] : null;
   const csvRevenue = revenueData.length > 0 ? revenueData[revenueData.length - 1] : null;
@@ -362,62 +598,91 @@ export default function ResearchPage() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      // Capture model data BEFORE switching tabs (switching unmounts ValuationModel)
       let modelData = modelRef.current?.getModelData?.() || null;
 
-      // Fallback: if ref wasn't available (e.g. on fundamentals tab), load from API
       if (!modelData) {
         try {
           const modelRes = await fetch(`/api/model/${selectedTicker}`);
           const modelJson = await modelRes.json();
           if (modelJson.exists && modelJson.inputs) {
-            // Import the compute logic inline
             const inp = modelJson.inputs;
             const p = (v) => (v === '' || v === undefined || v === null || isNaN(Number(v))) ? 0 : Number(v);
             const sharePrice = p(inp.sharePrice) || (livePrice || 0);
             const targetPE = p(inp.targetPE);
-            const revG = p(inp.revenueGrowth), opexG = p(inp.opexGrowth), cogsG = p(inp.cogsGrowth);
-            const dilution = p(inp.netShareDilution), divG = p(inp.dividendGrowth), curDiv = p(inp.currentDividend);
-            const taxRate = p(inp.taxRate), baseYear = p(inp.baseYear);
-            const revenue = [p(inp.baseRevenue)]; for (let i=1;i<=5;i++) revenue.push(revenue[i-1]*(1+revG));
-            const cogs = [p(inp.baseCOGS)]; for (let i=1;i<=5;i++) cogs.push(cogs[i-1]*(1+cogsG));
-            const opex = [p(inp.baseOpex)]; for (let i=1;i<=5;i++) opex.push(opex[i-1]*(1+opexG));
-            const opIncome = [0,1,2,3,4,5].map(i => revenue[i]-cogs[i]-opex[i]);
-            const opMargin = [0,1,2,3,4,5].map(i => revenue[i]?opIncome[i]/revenue[i]:0);
-            const nonOpIncome = [p(inp.baseNonOpIncome),0,0,0,0,0];
-            const taxExpense = [p(inp.baseTaxExpense)]; for (let i=1;i<=5;i++) taxExpense.push(opIncome[i]*taxRate);
-            const netIncome = [0,1,2,3,4,5].map(i => opIncome[i]-taxExpense[i]+nonOpIncome[i]);
-            const shares = [p(inp.baseShares)]; for (let i=1;i<=5;i++) shares.push(shares[i-1]*(1+dilution));
-            const eps = [0,1,2,3,4,5].map(i => shares[i]?netIncome[i]/shares[i]:0);
-            const epsGrowth = (eps[0]&&eps[5])?Math.pow(eps[5]/eps[0],0.2)-1:0;
-            const targetPrice5 = targetPE*eps[5];
-            const priceCAGR = (sharePrice>0&&targetPrice5>0)?Math.pow(targetPrice5/sharePrice,0.2)-1:0;
-            const priceArr = [sharePrice]; for (let i=1;i<=5;i++) priceArr.push(priceArr[i-1]*(1+priceCAGR));
-            const divShares = [1]; for (let i=1;i<=5;i++){const df=sharePrice>0?(curDiv/sharePrice)*Math.pow((1+divG)/(1+priceCAGR),i-1):0;divShares.push((1+df)*divShares[i-1]);}
+            const revG = p(inp.revenueGrowth);
+            const opexG = p(inp.opexGrowth);
+            const cogsG = p(inp.cogsGrowth);
+            const dilution = p(inp.netShareDilution);
+            const divG = p(inp.dividendGrowth);
+            const curDiv = p(inp.currentDividend);
+            const taxRate = p(inp.taxRate);
+            const baseYear = p(inp.baseYear);
+            const revenue = [p(inp.baseRevenue)];
+            for (let i = 1; i <= 5; i++) revenue.push(revenue[i - 1] * (1 + revG));
+            const cogs = [p(inp.baseCOGS)];
+            for (let i = 1; i <= 5; i++) cogs.push(cogs[i - 1] * (1 + cogsG));
+            const opex = [p(inp.baseOpex)];
+            for (let i = 1; i <= 5; i++) opex.push(opex[i - 1] * (1 + opexG));
+            const opIncome = [0, 1, 2, 3, 4, 5].map(i => revenue[i] - cogs[i] - opex[i]);
+            const opMargin = [0, 1, 2, 3, 4, 5].map(i => revenue[i] ? opIncome[i] / revenue[i] : 0);
+            const nonOpIncome = [p(inp.baseNonOpIncome), 0, 0, 0, 0, 0];
+            const taxExpense = [p(inp.baseTaxExpense)];
+            for (let i = 1; i <= 5; i++) taxExpense.push(opIncome[i] * taxRate);
+            const netIncome = [0, 1, 2, 3, 4, 5].map(i => opIncome[i] - taxExpense[i] + nonOpIncome[i]);
+            const shares = [p(inp.baseShares)];
+            for (let i = 1; i <= 5; i++) shares.push(shares[i - 1] * (1 + dilution));
+            const eps = [0, 1, 2, 3, 4, 5].map(i => shares[i] ? netIncome[i] / shares[i] : 0);
+            const epsGrowth = (eps[0] && eps[5]) ? Math.pow(eps[5] / eps[0], 0.2) - 1 : 0;
+            const targetPrice5 = targetPE * eps[5];
+            const priceCAGR = (sharePrice > 0 && targetPrice5 > 0) ? Math.pow(targetPrice5 / sharePrice, 0.2) - 1 : 0;
+            const priceArr = [sharePrice];
+            for (let i = 1; i <= 5; i++) priceArr.push(priceArr[i - 1] * (1 + priceCAGR));
+            const divShares = [1];
+            for (let i = 1; i <= 5; i++) {
+              const df = sharePrice > 0 ? (curDiv / sharePrice) * Math.pow((1 + divG) / (1 + priceCAGR), i - 1) : 0;
+              divShares.push((1 + df) * divShares[i - 1]);
+            }
             const totalCAGRNoDivs = priceCAGR;
-            const totalCAGR = (sharePrice>0&&divShares[5]*priceArr[5]>0)?Math.pow((divShares[5]*priceArr[5])/sharePrice,0.2)-1:0;
+            const totalCAGR = (sharePrice > 0 && divShares[5] * priceArr[5] > 0) ? Math.pow((divShares[5] * priceArr[5]) / sharePrice, 0.2) - 1 : 0;
             modelData = {
               inputs: { ...inp, sharePrice },
-              computed: { yearLabels: [0,1,2,3,4,5].map(i=>baseYear+i), revenue, cogs, opex, opIncome, opMargin, nonOpIncome, taxExpense, netIncome, shares, eps, epsGrowth, priceArr, divShares, totalCAGRNoDivs, totalCAGR, priceTarget: priceArr[2], targetPrice5, priceCAGR },
+              computed: {
+                yearLabels: [0, 1, 2, 3, 4, 5].map(i => baseYear + i),
+                revenue,
+                cogs,
+                opex,
+                opIncome,
+                opMargin,
+                nonOpIncome,
+                taxExpense,
+                netIncome,
+                shares,
+                eps,
+                epsGrowth,
+                priceArr,
+                divShares,
+                totalCAGRNoDivs,
+                totalCAGR,
+                priceTarget: priceArr[2],
+                targetPrice5,
+                priceCAGR,
+              },
             };
           }
         } catch {}
       }
 
-      // Fetch a fresh quote with all extended fields for the export
       let freshQuote = liveQuote;
       try {
         const quoteRes = await fetch(`/api/quotes?tickers=${selectedTicker}`);
         const quoteJson = await quoteRes.json();
-        if (quoteJson.quotes?.[selectedTicker]) {
-          freshQuote = quoteJson.quotes[selectedTicker];
-        }
+        if (quoteJson.quotes?.[selectedTicker]) freshQuote = quoteJson.quotes[selectedTicker];
       } catch {}
 
       const prevTab = activeResearchTab;
       if (prevTab !== 'fundamentals') {
         setActiveResearchTab('fundamentals');
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
 
       const { exportReport } = await import('@/lib/exportReport');
@@ -434,7 +699,7 @@ export default function ResearchPage() {
       if (prevTab !== 'fundamentals') {
         setActiveResearchTab(prevTab);
       }
-      setToast({ message: 'Report exported!', type: 'success' });
+      setToast({ message: 'Report exported', type: 'success' });
     } catch (e) {
       console.error(e);
       setToast({ message: `Export failed: ${e.message}`, type: 'error' });
@@ -445,11 +710,10 @@ export default function ResearchPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
-      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Research</h1>
-          <p className="text-gray-500 mt-1">Analyze company fundamentals for your holdings</p>
+          <p className="text-gray-500 mt-1">Deep-dive workspace for names promoted beyond the watchlist stage</p>
         </div>
         {dataExists && (
           <button
@@ -463,18 +727,19 @@ export default function ResearchPage() {
         )}
       </div>
 
-      {/* Ticker Selector */}
       <Card className="mb-8">
         <div className="flex items-center gap-4">
           <label className="text-xs text-gray-500 uppercase tracking-wider font-bold">Select Company</label>
           <select
             value={selectedTicker}
             onChange={e => setSelectedTicker(e.target.value)}
-            className="bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 min-w-[200px]"
+            className="bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 min-w-[260px]"
           >
             <option value="">-- Select Ticker --</option>
-            {holdings.map(h => (
-              <option key={h.ticker} value={h.ticker}>{h.ticker}</option>
+            {researchStocks.map(stock => (
+              <option key={`${stock.watchlistId}-${stock.ticker}`} value={stock.ticker}>
+                {stock.ticker} · {stock.watchlistName}
+              </option>
             ))}
           </select>
         </div>
@@ -482,8 +747,8 @@ export default function ResearchPage() {
 
       {!selectedTicker ? (
         <div className="text-center py-20">
-          <p className="text-lg text-gray-400 mb-2">Select a ticker to view research data</p>
-          <p className="text-sm text-gray-300">Choose from your portfolio holdings above</p>
+          <p className="text-lg text-gray-400 mb-2">Select a ticker to open the research workspace</p>
+          <p className="text-sm text-gray-300">Only companies moved into the Research stage appear here</p>
         </div>
       ) : tickerLoading ? (
         <div className="space-y-6">
@@ -495,11 +760,9 @@ export default function ResearchPage() {
           <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-5">
             <AlertTriangle size={28} className="text-amber-500" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">
-            No data generated for {selectedTicker}
-          </h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">No data generated for {selectedTicker}</h2>
           <p className="text-sm text-gray-500 mb-8 max-w-md mx-auto leading-relaxed">
-            Data for this ticker has not been generated yet. Fetch fundamentals from Alpha Vantage and price data from Yahoo Finance.
+            Generate fundamentals and price history for this company to unlock the full research workflow.
           </p>
           <button
             onClick={() => setShowGenerateModal(true)}
@@ -511,12 +774,11 @@ export default function ResearchPage() {
         </Card>
       ) : (
         <>
-          {/* Tab Switcher + Save */}
           <div className="flex items-center justify-between mb-8">
             <div className="flex gap-1 bg-gray-100/80 rounded-2xl p-1 w-fit">
               {[
                 { key: 'fundamentals', label: 'Fundamentals' },
-                { key: 'thesis', label: 'Thesis & Underwriting' },
+                { key: 'thesis', label: 'Research Workspace' },
               ].map(tab => (
                 <button
                   key={tab.key}
@@ -548,36 +810,34 @@ export default function ResearchPage() {
                 ) : (
                   <CheckCircle size={14} />
                 )}
-                {thesisSaving ? 'Saving...' : thesisDirty ? 'Save Thesis' : 'Saved'}
+                {thesisSaving ? 'Saving...' : thesisDirty ? 'Save Notes' : 'Saved'}
               </button>
             )}
           </div>
 
-          {/* Position Snapshot */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
             <StatCard label="Ticker" value={selectedTicker} />
-            <StatCard label="% of AUM" value={`${pctAum}%`} />
-            <StatCard
-              label="Unrealized Gain/Loss"
-              variant={
-                quoteLoading || !holding || !livePrice ? 'default' :
-                ((livePrice - holding.cost_basis) / holding.cost_basis >= 0 ? 'positive' : 'negative')
-              }
-              value={
-                quoteLoading ? null :
-                (holding && livePrice)
-                  ? `${((livePrice - holding.cost_basis) / holding.cost_basis * 100) >= 0 ? '+' : ''}${((livePrice - holding.cost_basis) / holding.cost_basis * 100).toFixed(2)}%`
-                  : '—'
-              }
-            />
+            <StatCard label="Watchlist" value={selectedStock?.watchlistName || '—'} />
+            <StatCard label="Stage" value="Research" />
           </div>
 
           {activeResearchTab === 'fundamentals' ? (
             <>
-              {/* Price Chart */}
+              <Card className="mb-8">
+                <label className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-3">Why This Name Is Here</label>
+                <textarea
+                  value={selectedStock?.note || ''}
+                  onChange={(e) => updateSelectedStockLocal(stock => ({ ...stock, note: e.target.value }))}
+                  onBlur={(e) => persistSelectedStock(stock => ({ ...stock, note: e.target.value }))}
+                  onInput={(e) => autoExpand(e.target)}
+                  rows={3}
+                  placeholder="Summarize why this company graduated from the watchlist into deep research..."
+                  className="w-full bg-gray-50/50 border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
+                />
+              </Card>
+
               <PriceChart labels={priceLabels} data={priceData} color="#10b981" />
 
-              {/* Data Points */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
                   { label: 'Price', value: displayPrice ? `$${displayPrice.toFixed(2)}` : '—' },
@@ -596,14 +856,13 @@ export default function ResearchPage() {
                 ))}
               </div>
 
-              {/* Charts Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <FundamentalChart title="Revenue" labels={revenueLabels} data={revenueData} label="Revenue" formatY={(v) => formatLargeNumber(v)} />
                 <FundamentalChart title="Operating Margins" labels={marginLabels} data={marginData} chartType="line" label="Op Margin" color="#f59e0b" formatY={(v) => `${v.toFixed(1)}%`} showCagr={false} />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                <FundamentalChart title="Outstanding Shares" labels={sharesLabels} data={sharesData} label="Shares" formatY={(v) => formatShareCount(v)} colorPositive="#06b6d4" colorNegative="#06b6d4" />
+                <FundamentalChart title="Outstanding Shares" labels={sharesLabels} data={sharesData} label="Shares" formatY={(v) => formatLargeNumber(v)} colorPositive="#06b6d4" colorNegative="#06b6d4" />
                 <FundamentalChart title="EPS (Diluted)" labels={epsLabels} data={epsData} label="EPS" formatY={(v) => `$${v.toFixed(2)}`} />
               </div>
 
@@ -616,328 +875,279 @@ export default function ResearchPage() {
                 <PriceChart title="FCF Yield" labels={fcfYieldLabels} data={fcfYieldData} label="FCF Yield" color="#10b981" formatY={(v) => `${v.toFixed(1)}%`} showCagr={false} className="" />
               </div>
             </>
-          ) : (
-            /* ── Thesis & Underwriting Tab ── */
-            thesisLoading ? (
-              <div className="space-y-6">
-                <div className="skeleton h-48 rounded-2xl" />
-                <div className="skeleton h-64 rounded-2xl" />
-              </div>
-            ) : thesis ? (
-              <div className="space-y-8" onBlur={() => saveThesis()}>
-                {/* ── Preexisting Thesis ── */}
-                <Card>
-                  <h2 className="text-lg font-bold text-gray-900 mb-1">Preexisting Thesis</h2>
-                  <p className="text-xs text-gray-400 mb-6">Document your investment thesis, core reasoning, and valuation framework</p>
+          ) : thesisLoading ? (
+            <div className="space-y-6">
+              <div className="skeleton h-48 rounded-2xl" />
+              <div className="skeleton h-64 rounded-2xl" />
+            </div>
+          ) : thesis ? (
+            <div className="space-y-8" onBlur={() => saveThesis()}>
+              <Card>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">Thesis Structure</h2>
+                <p className="text-sm text-gray-500 mb-6">Capture the core fundamentals first, then answer the diligence and dislocation questions in full underneath.</p>
 
-                  {/* Core Reasons */}
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-3">
-                      <label className="text-xs text-gray-500 uppercase tracking-wider font-bold">Core Reasons We Own This</label>
-                      <button
-                        onClick={addCoreReason}
-                        className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                      >
-                        <Plus size={13} />
-                        Add Reason
-                      </button>
-                    </div>
-                    <div className="space-y-4">
-                      {(thesis.coreReasons || []).map((reason, idx) => {
-                        const r = typeof reason === 'string' ? { title: reason, description: '' } : reason;
-                        return (
-                          <div key={idx} className="group border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-all duration-200">
-                            <div className="flex gap-3 items-start">
-                              <span className="flex-shrink-0 w-7 h-10 flex items-center justify-center text-xs font-bold text-gray-300 mt-px">{idx + 1}.</span>
-                              <div className="flex-1 space-y-2">
-                                <input
-                                  type="text"
-                                  value={r.title}
-                                  onChange={e => updateCoreReason(idx, 'title', e.target.value)}
-                                  placeholder={`Core reason #${idx + 1}...`}
-                                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 placeholder:font-normal"
-                                />
-                                <textarea
-                                  value={r.description}
-                                  onChange={e => updateCoreReason(idx, 'description', e.target.value)}
-                                  onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                                  ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                                  placeholder="Elaborate on this reason..."
-                                  rows={2}
-                                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 resize-none overflow-hidden"
-                                />
-                              </div>
-                              {(thesis.coreReasons || []).length > 1 && (
-                                <button
-                                  onClick={() => removeCoreReason(idx)}
-                                  className="flex-shrink-0 p-2.5 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all duration-200"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* The Story — rich text with inline images */}
-                  <div className="mb-6">
-                    <label className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">The Story</label>
-                    <p className="text-[10px] text-gray-400 mb-3">Paste images with Ctrl+V or hover to add via the image icon</p>
-                    <RichTextArea
-                      value={thesis.assumptions || ''}
-                      onChange={val => updateThesisField('assumptions', val)}
-                      ticker={selectedTicker}
-                      placeholder="What assumptions underpin your thesis? E.g., continued market share gains, margin expansion from scale, durable competitive moat..."
-                      rows={4}
-                    />
-                  </div>
-
-                </Card>
-
-                {/* ── Research To-Do ── */}
-                <Card>
-                  <div className="flex items-center justify-between mb-1">
-                    <h2 className="text-lg font-bold text-gray-900">Research To-Do</h2>
-                    <button
-                      onClick={addTodo}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                    >
-                      <Plus size={13} />
-                      Add Item
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-400 mb-4">Quick checklist of things to research or follow up on (do not delete until checked off by other founder)</p>
-
-                  {(!thesis.todos || thesis.todos.length === 0) ? (
-                    <div className="text-center py-6 border border-dashed border-gray-200 rounded-xl">
-                      <p className="text-sm text-gray-400 mb-1">No items yet</p>
-                      <p className="text-xs text-gray-300">Add tasks like "check Q4 guidance" or "review competitor margins"</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {(thesis.todos || []).map((todo, idx) => (
-                        <div key={idx} className="flex items-center gap-3 group">
-                          <button
-                            onClick={() => updateTodo(idx, 'done', !todo.done)}
-                            className={`flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200 ${
-                              todo.done
-                                ? 'bg-emerald-500 border-emerald-500'
-                                : 'border-gray-300 hover:border-emerald-400'
-                            }`}
-                          >
-                            {todo.done && <Check size={12} className="text-white" strokeWidth={3} />}
-                          </button>
-                          <input
-                            type="text"
-                            value={todo.text}
-                            onChange={e => updateTodo(idx, 'text', e.target.value)}
-                            placeholder="What needs to be done..."
-                            className={`flex-1 bg-transparent border-none outline-none text-sm transition-all duration-200 placeholder:text-gray-300 ${
-                              todo.done ? 'line-through text-gray-400' : 'text-gray-900'
-                            }`}
-                          />
-                          <button
-                            onClick={() => removeTodo(idx)}
-                            className="flex-shrink-0 p-1.5 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all duration-200"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-
-                {/* ── News & Updates ── */}
-                <Card>
-                  <div className="flex items-center justify-between mb-1">
-                    <h2 className="text-lg font-bold text-gray-900">News & Updates</h2>
-                    <button
-                      onClick={addNewsUpdate}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                    >
-                      <Plus size={13} />
-                      Add Update
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-400 mb-6">Log major developments, earnings, or news and how they affect your thesis</p>
-
-                  {(!thesis.newsUpdates || thesis.newsUpdates.length === 0) ? (
-                    <div className="text-center py-8 border border-dashed border-gray-200 rounded-xl">
-                      <p className="text-sm text-gray-400 mb-1">No updates yet</p>
-                      <p className="text-xs text-gray-300">Add an entry when earnings drop or a big event happens</p>
-                    </div>
-                  ) : (() => {
-                    const updates = thesis.newsUpdates || [];
-                    const latestIdx = updates.length - 1;
-                    const activeIdx = thesis._activeNewsIdx !== undefined && thesis._activeNewsIdx < updates.length ? thesis._activeNewsIdx : latestIdx;
-                    const entry = updates[activeIdx];
-
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {FUNDAMENTALS_BOXES.map(({ key, label, color, placeholder }) => {
+                    const styles = BOX_STYLES[color];
                     return (
-                      <div>
-                        {/* Selector for previous updates */}
-                        {updates.length > 1 && (
-                          <div className="flex items-center gap-3 mb-4">
-                            <select
-                              value={activeIdx}
-                              onChange={e => setThesis(prev => ({ ...prev, _activeNewsIdx: Number(e.target.value) }))}
-                              className="flex-1 bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
-                            >
-                              {updates.map((u, i) => (
-                                <option key={i} value={i}>
-                                  {i === latestIdx ? '(Latest) ' : ''}{u.title || 'Untitled'}{u.date ? ` — ${u.date}` : ''}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-
-                        {/* Active entry */}
-                        <div className="border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-all duration-200 group">
-                          <div className="flex items-start gap-4 mb-4">
-                            <div className="flex-1">
-                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Title</label>
-                              <input
-                                type="text"
-                                value={entry.title || ''}
-                                onChange={e => updateNewsUpdate(activeIdx, 'title', e.target.value)}
-                                placeholder="e.g., Q3 2025 Earnings, Major Acquisition, Guidance Revision..."
-                                className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 placeholder:font-normal"
-                              />
-                            </div>
-                            <div className="w-36 flex-shrink-0">
-                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Date</label>
-                              <input
-                                type="date"
-                                value={entry.date || ''}
-                                onChange={e => updateNewsUpdate(activeIdx, 'date', e.target.value)}
-                                className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
-                              />
-                            </div>
-                            <button
-                              onClick={() => {
-                                removeNewsUpdate(activeIdx);
-                                setThesis(prev => ({ ...prev, _activeNewsIdx: undefined }));
-                              }}
-                              className="flex-shrink-0 p-2 mt-5 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all duration-200"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-
-                          <div className="mb-4">
-                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">What Happened</label>
-                            <textarea
-                              value={entry.body || ''}
-                              onChange={e => updateNewsUpdate(activeIdx, 'body', e.target.value)}
-                              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                              ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                              placeholder="Summarize the key takeaways..."
-                              rows={3}
-                              className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 resize-none overflow-hidden"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Impact on Assumptions</label>
-                            <textarea
-                              value={entry.impactOnAssumptions || ''}
-                              onChange={e => updateNewsUpdate(activeIdx, 'impactOnAssumptions', e.target.value)}
-                              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                              ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                              placeholder="Does this change your revenue growth, margin, or valuation assumptions? If so, how?"
-                              rows={2}
-                              className="w-full bg-amber-50/50 border border-amber-200/60 rounded-xl px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all duration-200 placeholder:text-amber-300 resize-none overflow-hidden"
-                            />
-                          </div>
-
-                          {/* ── Attached Images ── */}
-                          <div className="mt-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center gap-1">
-                                <ImageIcon size={11} />
-                                Attached Images
-                              </label>
-                              <label className={`flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 cursor-pointer transition-colors ${imageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
-                                <Plus size={12} />
-                                {imageUploading ? 'Uploading...' : 'Add Image'}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  className="hidden"
-                                  onChange={e => uploadNewsImage(activeIdx, Array.from(e.target.files))}
-                                />
-                              </label>
-                            </div>
-                            {(entry.images && entry.images.length > 0) ? (
-                              <div className="grid grid-cols-3 gap-2">
-                                {entry.images.map((img, imgIdx) => (
-                                  <div key={imgIdx} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
-                                    <img
-                                      src={img.url}
-                                      alt={img.name || 'Attached image'}
-                                      className="w-full h-24 object-cover cursor-pointer"
-                                      onClick={() => setPreviewImage(img.url)}
-                                    />
-                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
-                                      <button
-                                        onClick={() => setPreviewImage(img.url)}
-                                        className="p-1 bg-white/90 rounded-md text-gray-700 hover:bg-white"
-                                      >
-                                        <ZoomIn size={14} />
-                                      </button>
-                                      <button
-                                        onClick={() => removeNewsImage(activeIdx, imgIdx)}
-                                        className="p-1 bg-white/90 rounded-md text-red-500 hover:bg-white"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
-                                    </div>
-                                    <p className="text-[9px] text-gray-400 truncate px-1.5 py-0.5">{img.name}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-4 border border-dashed border-gray-200 rounded-lg">
-                                <p className="text-xs text-gray-300">No images attached</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                      <div key={key} className={`${styles.bg} border ${styles.border} rounded-2xl p-4`}>
+                        <label className={`text-[11px] font-bold uppercase tracking-[0.18em] ${styles.label}`}>
+                          {label}
+                        </label>
+                        <textarea
+                          value={selectedStock?.fundamentals?.[key] || ''}
+                          onChange={(e) => updateFundamentalBox(key, e.target.value)}
+                          onBlur={(e) => updateFundamentalBox(key, e.target.value, true)}
+                          onInput={(e) => autoExpand(e.target)}
+                          rows={6}
+                          placeholder={placeholder}
+                          className={`mt-3 w-full bg-white/70 border ${styles.border} rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none ${styles.ring} transition-all resize-none overflow-hidden`}
+                        />
                       </div>
                     );
-                  })()}
-                </Card>
+                  })}
+                </div>
+              </Card>
 
-                {/* ── Valuation Model ── */}
-                <ValuationModel ref={modelRef} ticker={selectedTicker} livePrice={livePrice} />
+              <QuestionSection
+                title="Due Diligence Questions"
+                subtitle="Use this section for the key questions that need direct, evidence-backed answers before the company can be underwritten."
+                icon={ClipboardList}
+                accentClasses={{
+                  label: 'text-blue-600',
+                  button: 'text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100',
+                  empty: 'bg-blue-50/40 border-blue-200/70',
+                  card: 'bg-white border-blue-100/80',
+                  icon: 'text-blue-500 hover:text-blue-600',
+                }}
+                items={dueDiligenceItems}
+                onAdd={() => addQuestion('dueDiligenceItems')}
+                onToggleDone={(idx, done) => toggleQuestionDone('dueDiligenceItems', idx, done)}
+                onChangeQuestion={(idx, value) => updateQuestionText('dueDiligenceItems', idx, value)}
+                onSaveQuestion={(idx, value) => updateQuestionText('dueDiligenceItems', idx, value, true)}
+                onChangeAnswer={(idx, value) => updateQuestionAnswer('dueDiligenceItems', idx, value)}
+                onSaveAnswer={(idx, value) => updateQuestionAnswer('dueDiligenceItems', idx, value, true)}
+                onRemove={(idx) => removeQuestion('dueDiligenceItems', idx)}
+              />
 
-                {/* ── Export Button ── */}
-                <div className="flex justify-center pt-2 pb-4">
+              <QuestionSection
+                title="Dislocation Questions"
+                subtitle="Document the market disconnect, what could close it, and the evidence that supports the variant view."
+                icon={FlaskConical}
+                accentClasses={{
+                  label: 'text-amber-600',
+                  button: 'text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100',
+                  empty: 'bg-amber-50/40 border-amber-200/70',
+                  card: 'bg-white border-amber-100/80',
+                  icon: 'text-amber-500 hover:text-amber-600',
+                }}
+                items={dislocationItems}
+                onAdd={() => addQuestion('dislocationItems')}
+                onToggleDone={(idx, done) => toggleQuestionDone('dislocationItems', idx, done)}
+                onChangeQuestion={(idx, value) => updateQuestionText('dislocationItems', idx, value)}
+                onSaveQuestion={(idx, value) => updateQuestionText('dislocationItems', idx, value, true)}
+                onChangeAnswer={(idx, value) => updateQuestionAnswer('dislocationItems', idx, value)}
+                onSaveAnswer={(idx, value) => updateQuestionAnswer('dislocationItems', idx, value, true)}
+                onRemove={(idx) => removeQuestion('dislocationItems', idx)}
+              />
+
+              <Card>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">Story</h2>
+                <p className="text-sm text-gray-500 mb-6">Keep the broader narrative and valuation framing here while the structured question workflow stays above.</p>
+
+                <div className="mb-6">
+                  <label className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-2">Company Narrative</label>
+                  <RichTextArea
+                    value={thesis.assumptions || ''}
+                    onChange={value => updateThesisField('assumptions', value)}
+                    ticker={selectedTicker}
+                    placeholder="Write the main narrative, what matters most, and how the fundamental pieces connect..."
+                    rows={5}
+                  />
+                </div>
+
+
+              </Card>
+
+
+
+              <Card>
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="text-lg font-bold text-gray-900">News & Updates</h2>
                   <button
-                    onClick={handleExport}
-                    disabled={exporting}
-                    className="flex items-center gap-2.5 px-8 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-semibold rounded-2xl hover:from-gray-800 hover:to-gray-700 shadow-lg shadow-gray-300/40 hover:shadow-xl transition-all duration-200 disabled:opacity-50"
+                    onClick={addNewsUpdate}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
                   >
-                    {exporting ? (
-                      <RefreshCw size={16} className="animate-spin" />
-                    ) : (
-                      <FileDown size={16} />
-                    )}
-                    {exporting ? 'Generating Report...' : 'Export Research Report'}
+                    <Plus size={13} />
+                    Add Update
                   </button>
                 </div>
+                <p className="text-xs text-gray-400 mb-6">Log earnings, guidance, and any development that should change the research file.</p>
+
+                {(!thesis.newsUpdates || thesis.newsUpdates.length === 0) ? (
+                  <div className="text-center py-8 border border-dashed border-gray-200 rounded-xl">
+                    <p className="text-sm text-gray-400 mb-1">No updates yet</p>
+                    <p className="text-xs text-gray-300">Add an entry when a major development occurs.</p>
+                  </div>
+                ) : (() => {
+                  const updates = thesis.newsUpdates || [];
+                  const latestIdx = updates.length - 1;
+                  const activeIdx = thesis._activeNewsIdx !== undefined && thesis._activeNewsIdx < updates.length ? thesis._activeNewsIdx : latestIdx;
+                  const entry = updates[activeIdx];
+
+                  return (
+                    <div>
+                      {updates.length > 1 && (
+                        <div className="flex items-center gap-3 mb-4">
+                          <select
+                            value={activeIdx}
+                            onChange={e => setThesis(prev => ({ ...prev, _activeNewsIdx: Number(e.target.value) }))}
+                            className="flex-1 bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
+                          >
+                            {updates.map((update, i) => (
+                              <option key={i} value={i}>
+                                {i === latestIdx ? '(Latest) ' : ''}{update.title || 'Untitled'}{update.date ? ` — ${update.date}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-all duration-200 group">
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className="flex-1">
+                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Title</label>
+                            <input
+                              type="text"
+                              value={entry.title || ''}
+                              onChange={e => updateNewsUpdate(activeIdx, 'title', e.target.value)}
+                              placeholder="e.g., Q3 earnings, product launch, guidance cut..."
+                              className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 placeholder:font-normal"
+                            />
+                          </div>
+                          <div className="w-36 flex-shrink-0">
+                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Date</label>
+                            <input
+                              type="date"
+                              value={entry.date || ''}
+                              onChange={e => updateNewsUpdate(activeIdx, 'date', e.target.value)}
+                              className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
+                            />
+                          </div>
+                          <button
+                            onClick={() => {
+                              removeNewsUpdate(activeIdx);
+                              setThesis(prev => ({ ...prev, _activeNewsIdx: undefined }));
+                            }}
+                            className="flex-shrink-0 p-2 mt-5 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all duration-200"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+
+                        <div className="mb-4">
+                          <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">What Happened</label>
+                          <textarea
+                            value={entry.body || ''}
+                            onChange={e => updateNewsUpdate(activeIdx, 'body', e.target.value)}
+                            onInput={e => autoExpand(e.target)}
+                            rows={3}
+                            placeholder="Summarize the key takeaways..."
+                            className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 resize-none overflow-hidden"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Impact on Research</label>
+                          <textarea
+                            value={entry.impactOnAssumptions || ''}
+                            onChange={e => updateNewsUpdate(activeIdx, 'impactOnAssumptions', e.target.value)}
+                            onInput={e => autoExpand(e.target)}
+                            rows={2}
+                            placeholder="How does this change the questions, thesis, or valuation?"
+                            className="w-full bg-amber-50/50 border border-amber-200/60 rounded-xl px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all duration-200 placeholder:text-amber-300 resize-none overflow-hidden"
+                          />
+                        </div>
+
+                        <div className="mt-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center gap-1">
+                              <ImageIcon size={11} />
+                              Attached Images
+                            </label>
+                            <label className={`flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 cursor-pointer transition-colors ${imageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <Plus size={12} />
+                              {imageUploading ? 'Uploading...' : 'Add Image'}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={e => uploadNewsImage(activeIdx, Array.from(e.target.files))}
+                              />
+                            </label>
+                          </div>
+                          {(entry.images && entry.images.length > 0) ? (
+                            <div className="grid grid-cols-3 gap-2">
+                              {entry.images.map((img, imgIdx) => (
+                                <div key={imgIdx} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                                  <img
+                                    src={img.url}
+                                    alt={img.name || 'Attached image'}
+                                    className="w-full h-24 object-cover cursor-pointer"
+                                    onClick={() => setPreviewImage(img.url)}
+                                  />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
+                                    <button
+                                      onClick={() => setPreviewImage(img.url)}
+                                      className="p-1 bg-white/90 rounded-md text-gray-700 hover:bg-white"
+                                    >
+                                      <ZoomIn size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => removeNewsImage(activeIdx, imgIdx)}
+                                      className="p-1 bg-white/90 rounded-md text-red-500 hover:bg-white"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                  <p className="text-[9px] text-gray-400 truncate px-1.5 py-0.5">{img.name}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 border border-dashed border-gray-200 rounded-lg">
+                              <p className="text-xs text-gray-300">No images attached</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </Card>
+
+              <ValuationModel ref={modelRef} ticker={selectedTicker} livePrice={livePrice} />
+
+              <div className="flex justify-center pt-2 pb-4">
+                <button
+                  onClick={handleExport}
+                  disabled={exporting}
+                  className="flex items-center gap-2.5 px-8 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-semibold rounded-2xl hover:from-gray-800 hover:to-gray-700 shadow-lg shadow-gray-300/40 hover:shadow-xl transition-all duration-200 disabled:opacity-50"
+                >
+                  {exporting ? (
+                    <RefreshCw size={16} className="animate-spin" />
+                  ) : (
+                    <FileDown size={16} />
+                  )}
+                  {exporting ? 'Generating Report...' : 'Export Research Report'}
+                </button>
               </div>
-            ) : null
-          )}
+            </div>
+          ) : null}
         </>
       )}
 
-      {/* Generate Data Modal */}
       {showGenerateModal && (
         <div className="modal-overlay" onClick={() => setShowGenerateModal(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
@@ -961,7 +1171,6 @@ export default function ResearchPage() {
         </div>
       )}
 
-      {/* Update Data Modal */}
       {showUpdateModal && (
         <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
@@ -987,7 +1196,6 @@ export default function ResearchPage() {
 
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
 
-      {/* Image Preview Modal */}
       {previewImage && (
         <div
           className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-8"

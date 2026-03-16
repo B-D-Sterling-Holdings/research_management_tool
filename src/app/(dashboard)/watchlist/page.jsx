@@ -403,6 +403,7 @@ function DislocationChecklist({ items, onUpdate }) {
 /* ── Stock Card ───────────────────────────────────────────────── */
 function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResearch }) {
   const isResearching = stock.stage === 'researching';
+  const isInResearch = stock.stage === 'research';
   const fundamentals = stock.fundamentals || {};
   const dislocationItems = stock.dislocationItems || [];
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -443,6 +444,11 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
             {isResearching && (
               <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
                 RESEARCHING
+              </span>
+            )}
+            {isInResearch && (
+              <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                IN RESEARCH
               </span>
             )}
           </div>
@@ -559,12 +565,27 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
           >
             Move to Researching <ArrowRight size={13} />
           </button>
+        ) : stock.stage === 'researching' ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => onMove(stock.ticker, 'watching')}
+              className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <ArrowLeft size={13} /> Back to Watching
+            </button>
+            <button
+              onClick={() => onMove(stock.ticker, 'research')}
+              className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Move to Research <ArrowRight size={13} />
+            </button>
+          </div>
         ) : (
           <button
-            onClick={() => onMove(stock.ticker, 'watching')}
-            className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+            onClick={() => onMove(stock.ticker, 'researching')}
+            className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
           >
-            <ArrowLeft size={13} /> Back to Watching
+            <ArrowLeft size={13} /> Back to Researching
           </button>
         )}
       </div>
@@ -814,13 +835,21 @@ export default function WatchlistPage() {
   }, [cache]);
 
   useEffect(() => {
-    loadData().then(data => {
-      if (data) {
-        // Collect all tickers across all watchlists for quotes
-        const allStocks = (data.watchlists || []).flatMap(wl => wl.stocks || []);
-        if (allStocks.length > 0) fetchQuotes(allStocks);
-      }
-    });
+    let cancelled = false;
+
+    async function syncWatchlist() {
+      const data = await loadData();
+      if (!data || cancelled) return;
+
+      const allStocks = (data.watchlists || []).flatMap(wl => wl.stocks || []);
+      if (allStocks.length > 0) fetchQuotes(allStocks);
+    }
+
+    syncWatchlist();
+
+    return () => {
+      cancelled = true;
+    };
   }, [loadData, fetchQuotes]);
 
   // ── Watchlist management ──
@@ -937,6 +966,7 @@ export default function WatchlistPage() {
 
   const watching = stocks.filter(s => s.stage === 'watching');
   const researching = stocks.filter(s => s.stage === 'researching');
+  const research = stocks.filter(s => s.stage === 'research');
 
   if (loading) {
     return (
@@ -963,7 +993,8 @@ export default function WatchlistPage() {
               <h1 className="text-2xl font-bold text-gray-900">Watchlist</h1>
               <p className="text-sm text-gray-500 mt-1">
                 {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
-                {researching.length > 0 && ` · ${researching.length} in research`}
+                {researching.length > 0 && ` · ${researching.length} currently researching`}
+                {research.length > 0 && ` · ${research.length} in research`}
               </p>
             </div>
             <WatchlistSelector
@@ -1048,6 +1079,31 @@ export default function WatchlistPage() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {researching.map(stock => (
+                <StockCard
+                  key={stock.ticker}
+                  stock={stock}
+                  quote={quotes[stock.ticker]}
+                  onRemove={removeStock}
+                  onMove={moveStock}
+                  onUpdateNote={updateNote}
+                  onUpdateResearch={updateResearch}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {research.length > 0 && (
+          <section className="mt-12">
+            <div className="flex items-center gap-2 mb-4">
+              <ClipboardList size={18} className="text-blue-600" />
+              <h2 className="text-lg font-bold text-gray-800">Research</h2>
+              <span className="text-xs text-gray-400 font-medium bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                {research.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {research.map(stock => (
                 <StockCard
                   key={stock.ticker}
                   stock={stock}
