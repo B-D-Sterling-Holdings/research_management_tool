@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Search, Eye, FolderOpen, LogOut, ClipboardList,
@@ -45,10 +45,12 @@ const NAV_GROUPS = [
   },
 ];
 
-function NavDropdown({ group, pathname }) {
+function NavDropdown({ group, pathname, searchParams }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const timeoutRef = useRef(null);
+
+  const currentFullPath = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : '');
 
   const isGroupActive = group.matchPaths.some(
     p => pathname === p || pathname.startsWith(p + '/')
@@ -98,8 +100,8 @@ function NavDropdown({ group, pathname }) {
         <div className="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl shadow-lg shadow-gray-200/80 border border-gray-100 py-1.5 z-50">
           {group.items.map(({ href, label, icon: ItemIcon }) => {
             const isItemActive = href.includes('?')
-              ? pathname + (typeof window !== 'undefined' ? window.location.search : '') === href
-              : pathname === href || pathname.startsWith(href + '/');
+              ? currentFullPath === href
+              : currentFullPath === href;
 
             return (
               <Link
@@ -127,6 +129,7 @@ function NavDropdown({ group, pathname }) {
 
 export default function Navbar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { logout } = useAuth();
   const [scrolled, setScrolled] = useState(false);
 
@@ -160,7 +163,7 @@ export default function Navbar() {
 
         <div className="flex items-center gap-1">
           {NAV_GROUPS.map(group => (
-            <NavDropdown key={group.label} group={group} pathname={pathname} />
+            <NavDropdown key={group.label} group={group} pathname={pathname} searchParams={searchParams} />
           ))}
 
           <button

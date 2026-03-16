@@ -1,22 +1,26 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { FolderOpen, Upload, Trash2, Search, FileText, File, X, Download, Layers3, Clock3, Tag, ArrowUpRight } from 'lucide-react';
+import {
+  FolderOpen, Upload, Trash2, Search, FileText, File, X, Download,
+  Image as ImageIcon, UploadCloud, ChevronRight, ExternalLink, Filter,
+  FileSpreadsheet, BookOpen, Mail, Archive,
+} from 'lucide-react';
 
 const CATEGORIES = [
-  { value: 'shareholder_letter', label: 'Shareholder Letters' },
-  { value: 'equity_research', label: 'Equity Research' },
-  { value: 'investor_memo', label: 'Investor Memos' },
-  { value: 'financial_model', label: 'Financial Models' },
-  { value: 'other', label: 'Other' },
+  { value: 'shareholder_letter', label: 'Shareholder Letters', icon: Mail, color: 'blue' },
+  { value: 'equity_research', label: 'Equity Research', icon: BookOpen, color: 'emerald' },
+  { value: 'investor_memo', label: 'Investor Memos', icon: FileText, color: 'violet' },
+  { value: 'financial_model', label: 'Financial Models', icon: FileSpreadsheet, color: 'amber' },
+  { value: 'other', label: 'Other', icon: Archive, color: 'gray' },
 ];
 
-const CATEGORY_COLORS = {
-  shareholder_letter: 'bg-blue-50 text-blue-700 border-blue-200',
-  equity_research: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  investor_memo: 'bg-violet-50 text-violet-700 border-violet-200',
-  financial_model: 'bg-amber-50 text-amber-700 border-amber-200',
-  other: 'bg-gray-50 text-gray-600 border-gray-200',
+const COLOR_MAP = {
+  blue:    { badge: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500', hover: 'hover:bg-blue-50', active: 'bg-blue-50 border-blue-200 text-blue-700' },
+  emerald: { badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500', hover: 'hover:bg-emerald-50', active: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+  violet:  { badge: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500', hover: 'hover:bg-violet-50', active: 'bg-violet-50 border-violet-200 text-violet-700' },
+  amber:   { badge: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500', hover: 'hover:bg-amber-50', active: 'bg-amber-50 border-amber-200 text-amber-700' },
+  gray:    { badge: 'bg-gray-100 text-gray-600 border-gray-200', dot: 'bg-gray-400', hover: 'hover:bg-gray-50', active: 'bg-gray-100 border-gray-300 text-gray-700' },
 };
 
 function formatFileSize(bytes) {
@@ -28,107 +32,39 @@ function formatFileSize(bytes) {
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return 'Just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function DocumentCard({ doc, confirmDeleteId, setConfirmDeleteId, handleDelete }) {
-  const catLabel = CATEGORIES.find(c => c.value === doc.category)?.label || doc.category;
-  const catColor = CATEGORY_COLORS[doc.category] || CATEGORY_COLORS.other;
-  const isPdf = doc.file_type?.includes('pdf');
-  const isImage = doc.file_type?.startsWith('image/');
-
-  return (
-    <div className="bg-white rounded-[24px] border border-gray-200 hover:border-gray-300 shadow-sm hover:shadow-md transition-all p-5">
-      <div className="flex items-start gap-4">
-        <div className="flex-shrink-0 w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100">
-          {isPdf ? <FileText size={22} className="text-red-500" /> :
-           isImage ? <File size={22} className="text-blue-500" /> :
-           <File size={22} className="text-gray-400" />}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-base font-semibold text-gray-900 truncate">{doc.title || doc.file_name}</h3>
-              <div className="flex flex-wrap items-center gap-2 mt-2">
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${catColor}`}>
-                  {catLabel}
-                </span>
-                <span className="text-[11px] text-gray-400">{formatDate(doc.uploaded_at)}</span>
-                <span className="text-[11px] text-gray-400">{formatFileSize(doc.file_size)}</span>
-                {doc.ticker && (
-                  <span className="text-[10px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
-                    {doc.ticker}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <a
-                href={doc.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                title="Open"
-              >
-                <Download size={16} />
-              </a>
-              {confirmDeleteId === doc.id ? (
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setConfirmDeleteId(null)}
-                    className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg"
-                  >
-                    No
-                  </button>
-                  <button
-                    onClick={() => handleDelete(doc.id)}
-                    className="text-[11px] font-semibold text-white bg-red-500 px-2 py-1 rounded-lg"
-                  >
-                    Yes
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmDeleteId(doc.id)}
-                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Delete"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl bg-gray-50/80 border border-gray-100 px-4 py-3 min-h-[72px]">
-            {doc.notes ? (
-              <p className="text-sm text-gray-600 leading-relaxed">{doc.notes}</p>
-            ) : (
-              <p className="text-sm text-gray-400">No notes attached.</p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function fileIcon(doc) {
+  if (doc.file_type?.includes('pdf')) return <FileText size={20} className="text-red-500" />;
+  if (doc.file_type?.startsWith('image/')) return <ImageIcon size={20} className="text-blue-500" />;
+  if (doc.file_type?.includes('sheet') || doc.file_type?.includes('excel') || doc.file_name?.match(/\.(xlsx?|csv)$/i))
+    return <FileSpreadsheet size={20} className="text-emerald-600" />;
+  return <File size={20} className="text-gray-400" />;
 }
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
-  const [sortBy, setSortBy] = useState('date');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
 
+  // Upload form state
+  const [pendingFiles, setPendingFiles] = useState([]);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadCategory, setUploadCategory] = useState('other');
   const [uploadTicker, setUploadTicker] = useState('');
   const [uploadNotes, setUploadNotes] = useState('');
-  const [uploadFile, setUploadFile] = useState(null);
   const fileInputRef = useRef(null);
 
   const loadDocuments = useCallback(async () => {
@@ -136,46 +72,61 @@ export default function DocumentsPage() {
       const res = await fetch('/api/documents');
       const data = await res.json();
       setDocuments(data.documents || []);
-    } catch {
-      // silent
-    } finally {
+    } catch {} finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+  useEffect(() => { loadDocuments(); }, [loadDocuments]);
+
+  const handleFilesSelected = (files) => {
+    if (!files?.length) return;
+    setPendingFiles(Array.from(files));
+    setUploadTitle(files.length === 1 ? files[0].name.replace(/\.[^/.]+$/, '') : '');
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFilesSelected(e.dataTransfer.files);
+  };
 
   const handleUpload = async () => {
-    if (!uploadFile) return;
+    if (!pendingFiles.length) return;
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', uploadFile);
-      formData.append('title', uploadTitle || uploadFile.name);
-      formData.append('category', uploadCategory);
-      formData.append('ticker', uploadTicker);
-      formData.append('notes', uploadNotes);
+      for (const file of pendingFiles) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', pendingFiles.length === 1 ? (uploadTitle || file.name) : file.name);
+        formData.append('category', uploadCategory);
+        formData.append('ticker', uploadTicker);
+        formData.append('notes', uploadNotes);
 
-      const res = await fetch('/api/documents', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (data.document) {
-        setDocuments(prev => [data.document, ...prev]);
+        const res = await fetch('/api/documents', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.document) {
+          setDocuments(prev => [data.document, ...prev]);
+        }
       }
-
+      setPendingFiles([]);
       setUploadTitle('');
       setUploadCategory('other');
       setUploadTicker('');
       setUploadNotes('');
-      setUploadFile(null);
-      setShowUpload(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch {
-      // silent
-    } finally {
+    } catch {} finally {
       setUploading(false);
     }
+  };
+
+  const cancelUpload = () => {
+    setPendingFiles([]);
+    setUploadTitle('');
+    setUploadCategory('other');
+    setUploadTicker('');
+    setUploadNotes('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleDelete = async (id) => {
@@ -183,11 +134,10 @@ export default function DocumentsPage() {
       await fetch(`/api/documents?id=${id}`, { method: 'DELETE' });
       setDocuments(prev => prev.filter(d => d.id !== id));
       setConfirmDeleteId(null);
-    } catch {
-      // silent
-    }
+    } catch {}
   };
 
+  // Derived data
   const filtered = useMemo(() => (
     documents
       .filter(d => {
@@ -203,42 +153,35 @@ export default function DocumentsPage() {
         }
         return true;
       })
-      .sort((a, b) => {
-        if (sortBy === 'date') return new Date(b.uploaded_at) - new Date(a.uploaded_at);
-        if (sortBy === 'name') return (a.title || '').localeCompare(b.title || '');
-        if (sortBy === 'category') return (a.category || '').localeCompare(b.category || '');
-        return 0;
-      })
-  ), [documents, filterCategory, searchQuery, sortBy]);
+      .sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
+  ), [documents, filterCategory, searchQuery]);
 
-  const groupedDocuments = useMemo(() => (
-    CATEGORIES.map(category => ({
-      ...category,
-      documents: filtered.filter(doc => doc.category === category.value),
-    })).filter(group => group.documents.length > 0)
-  ), [filtered]);
-
-  const recentDocuments = filtered.slice(0, 5);
-
-  const stats = useMemo(() => {
-    const totalSize = documents.reduce((sum, doc) => sum + (Number(doc.file_size) || 0), 0);
-    const withTickers = documents.filter(doc => doc.ticker).length;
-    const activeCategories = CATEGORIES.filter(category =>
-      documents.some(doc => doc.category === category.value)
-    ).length;
-
-    return { totalSize, withTickers, activeCategories };
+  const categoryCounts = useMemo(() => {
+    const counts = {};
+    documents.forEach(d => { counts[d.category] = (counts[d.category] || 0) + 1; });
+    return counts;
   }, [documents]);
+
+  const tickerChips = useMemo(() => {
+    const tickers = {};
+    documents.forEach(d => { if (d.ticker) tickers[d.ticker] = (tickers[d.ticker] || 0) + 1; });
+    return Object.entries(tickers).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  }, [documents]);
+
+  const totalSize = useMemo(() =>
+    documents.reduce((sum, d) => sum + (Number(d.file_size) || 0), 0)
+  , [documents]);
 
   if (loading) {
     return (
-      <div className="min-h-screen px-6 lg:px-12">
-        <div className="max-w-7xl mx-auto">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse mb-6" />
+      <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
+        <div className="h-10 w-48 bg-gray-200 rounded-xl animate-pulse mb-8" />
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6">
           <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-24 bg-white rounded-2xl border border-gray-200 animate-pulse" />
-            ))}
+            {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}
+          </div>
+          <div className="space-y-4">
+            {[1, 2, 3].map(i => <div key={i} className="h-20 bg-white rounded-2xl border border-gray-100 animate-pulse" />)}
           </div>
         </div>
       </div>
@@ -246,284 +189,337 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="min-h-screen px-6 lg:px-12 pb-16">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Documents</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Organize research artifacts by type, ticker, and workflow stage
-            </p>
+    <div
+      className="max-w-7xl mx-auto px-6 lg:px-12 pb-16"
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
+      {/* Full-page drag overlay */}
+      {dragOver && (
+        <div className="fixed inset-0 z-40 bg-emerald-500/10 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="bg-white rounded-3xl shadow-2xl border-2 border-dashed border-emerald-400 px-16 py-12 text-center">
+            <UploadCloud size={48} className="text-emerald-500 mx-auto mb-3" />
+            <p className="text-lg font-bold text-gray-900">Drop files here</p>
+            <p className="text-sm text-gray-500 mt-1">They'll be added to your document hub</p>
           </div>
-          <button
-            onClick={() => setShowUpload(!showUpload)}
-            className="flex items-center gap-1.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-xl transition-colors shadow-sm"
-          >
-            <Upload size={15} />
-            Upload Document
-          </button>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6 mb-8">
-          <div className="relative overflow-hidden rounded-[28px] border border-emerald-200/70 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.22),_transparent_42%),linear-gradient(135deg,#f7fdf9_0%,#ffffff_58%,#eefaf4_100%)] p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-6">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Document Hub</p>
-                <h2 className="text-2xl font-bold text-gray-900 mt-2">Split files by workflow, not just filename.</h2>
-                <p className="text-sm text-gray-600 mt-3 max-w-2xl">
-                  Keep letters, research, memos, and models in clearly separated lanes so retrieval is fast when you are moving between watchlist work, research, and position review.
-                </p>
-              </div>
-              <div className="hidden md:flex h-14 w-14 items-center justify-center rounded-2xl bg-white/85 border border-emerald-200 shadow-sm">
-                <FolderOpen size={26} className="text-emerald-600" />
-              </div>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Documents</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            {documents.length} file{documents.length !== 1 ? 's' : ''} · {formatFileSize(totalSize)}
+          </p>
+        </div>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2 text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 px-5 py-2.5 rounded-xl transition-all shadow-sm hover:shadow-md"
+        >
+          <Upload size={15} />
+          Upload
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={e => handleFilesSelected(e.target.files)}
+        />
+      </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
-                <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                  <Layers3 size={14} />
-                  Total Files
-                </div>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{documents.length}</p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
-                <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                  <Tag size={14} />
-                  Tagged
-                </div>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{stats.withTickers}</p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
-                <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                  <FolderOpen size={14} />
-                  Categories
-                </div>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{stats.activeCategories}</p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
-                <div className="flex items-center gap-2 text-gray-500 text-xs font-semibold uppercase tracking-wider">
-                  <Download size={14} />
-                  Stored
-                </div>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{formatFileSize(stats.totalSize) || '0 B'}</p>
-              </div>
+      {/* Upload staging area */}
+      {pendingFiles.length > 0 && (
+        <div className="mb-8 bg-white rounded-2xl border border-emerald-200 shadow-sm overflow-hidden">
+          <div className="bg-emerald-50 px-6 py-3 flex items-center justify-between border-b border-emerald-100">
+            <div className="flex items-center gap-2">
+              <UploadCloud size={16} className="text-emerald-600" />
+              <span className="text-sm font-semibold text-emerald-800">
+                {pendingFiles.length} file{pendingFiles.length !== 1 ? 's' : ''} ready to upload
+              </span>
             </div>
+            <button onClick={cancelUpload} className="text-emerald-600 hover:text-emerald-800 transition-colors">
+              <X size={16} />
+            </button>
           </div>
-
-          <div className="rounded-[28px] border border-gray-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Clock3 size={16} className="text-gray-500" />
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Recent Uploads</h2>
-            </div>
-            {recentDocuments.length === 0 ? (
-              <p className="text-sm text-gray-400">No recent files yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {recentDocuments.map(doc => (
-                  <a
-                    key={doc.id}
-                    href={doc.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-start justify-between gap-3 rounded-2xl border border-gray-100 bg-gray-50/70 px-4 py-3 transition-colors hover:border-emerald-200 hover:bg-emerald-50/50"
+          <div className="p-6">
+            {/* File list */}
+            <div className="flex flex-wrap gap-2 mb-5">
+              {pendingFiles.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 text-sm">
+                  <File size={14} className="text-gray-400" />
+                  <span className="text-gray-700 font-medium truncate max-w-[200px]">{f.name}</span>
+                  <span className="text-gray-400 text-xs">{formatFileSize(f.size)}</span>
+                  <button
+                    onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                    className="text-gray-300 hover:text-red-500 transition-colors"
                   >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{doc.title || doc.file_name}</p>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                        <span>{CATEGORIES.find(c => c.value === doc.category)?.label || doc.category}</span>
-                        <span>•</span>
-                        <span>{formatDate(doc.uploaded_at)}</span>
-                        {doc.ticker && (
-                          <>
-                            <span>•</span>
-                            <span className="font-semibold text-gray-700">{doc.ticker}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <ArrowUpRight size={15} className="text-gray-400 flex-shrink-0 mt-0.5" />
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {showUpload && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-bold text-gray-900">Upload Document</h2>
-              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600">
-                <X size={18} />
-              </button>
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+
+            {/* Metadata fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              {pendingFiles.length === 1 && (
+                <div>
+                  <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={uploadTitle}
+                    onChange={e => setUploadTitle(e.target.value)}
+                    placeholder="Document title..."
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
+                  />
+                </div>
+              )}
               <div>
-                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Title</label>
-                <input
-                  type="text"
-                  value={uploadTitle}
-                  onChange={e => setUploadTitle(e.target.value)}
-                  placeholder="Document title..."
-                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Category</label>
+                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Category</label>
                 <select
                   value={uploadCategory}
                   onChange={e => setUploadCategory(e.target.value)}
-                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
                 >
-                  {CATEGORIES.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
+                  {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Related Ticker (optional)</label>
+                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Ticker</label>
                 <input
                   type="text"
                   value={uploadTicker}
                   onChange={e => setUploadTicker(e.target.value.toUpperCase())}
-                  placeholder="e.g. AMZN"
-                  className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all uppercase"
+                  placeholder="e.g. AAPL"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all uppercase"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">File</label>
+                <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Notes</label>
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  onChange={e => setUploadFile(e.target.files?.[0] || null)}
-                  className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition-all"
+                  type="text"
+                  value={uploadNotes}
+                  onChange={e => setUploadNotes(e.target.value)}
+                  placeholder="Quick note..."
+                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
                 />
               </div>
             </div>
-            <div className="mb-4">
-              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1.5">Notes (optional)</label>
-              <textarea
-                value={uploadNotes}
-                onChange={e => setUploadNotes(e.target.value)}
-                placeholder="Any notes about this document..."
-                rows={2}
-                className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none"
-              />
-            </div>
+
             <div className="flex justify-end">
               <button
                 onClick={handleUpload}
-                disabled={!uploadFile || uploading}
-                className="flex items-center gap-1.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed px-5 py-2.5 rounded-xl transition-colors"
+                disabled={uploading}
+                className="flex items-center gap-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 px-6 py-2.5 rounded-xl transition-colors"
               >
-                <Upload size={14} />
-                {uploading ? 'Uploading...' : 'Upload'}
+                {uploading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={14} />
+                    Upload {pendingFiles.length > 1 ? `${pendingFiles.length} files` : ''}
+                  </>
+                )}
               </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 mb-8">
-          <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Search size={16} className="text-gray-500" />
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500">Search & Filters</h2>
-            </div>
-            <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
-              <div className="relative flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search documents, notes, or tickers..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
-                />
+      {/* Main layout: sidebar + content */}
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6">
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Category nav */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+            <button
+              onClick={() => setFilterCategory('')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                !filterCategory ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <FolderOpen size={15} />
+                All Documents
               </div>
-              <select
-                value={filterCategory}
-                onChange={e => setFilterCategory(e.target.value)}
-                className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all min-w-[200px]"
-              >
-                <option value="">All Categories</option>
-                {CATEGORIES.map(c => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value)}
-                className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all min-w-[180px]"
-              >
-                <option value="date">Sort by Date</option>
-                <option value="name">Sort by Name</option>
-                <option value="category">Sort by Category</option>
-              </select>
-            </div>
-          </div>
+              <span className={`text-xs font-bold ${!filterCategory ? 'text-gray-400' : 'text-gray-400'}`}>{documents.length}</span>
+            </button>
 
-          <div className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-gray-500 mb-3">Category Split</div>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORIES.map(category => {
-                const count = documents.filter(doc => doc.category === category.value).length;
+            <div className="mt-1 space-y-0.5">
+              {CATEGORIES.map(cat => {
+                const count = categoryCounts[cat.value] || 0;
+                const colors = COLOR_MAP[cat.color];
+                const isActive = filterCategory === cat.value;
+                const Icon = cat.icon;
                 return (
                   <button
-                    key={category.value}
-                    onClick={() => setFilterCategory(prev => prev === category.value ? '' : category.value)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      filterCategory === category.value
-                        ? `${CATEGORY_COLORS[category.value] || CATEGORY_COLORS.other}`
-                        : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+                    key={cat.value}
+                    onClick={() => setFilterCategory(prev => prev === cat.value ? '' : cat.value)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      isActive ? `${colors.active} border` : `text-gray-600 ${colors.hover} border border-transparent`
                     }`}
                   >
-                    {category.label} · {count}
+                    <div className="flex items-center gap-2.5">
+                      <Icon size={15} className={isActive ? '' : 'text-gray-400'} />
+                      <span className="truncate">{cat.label}</span>
+                    </div>
+                    {count > 0 && (
+                      <span className={`text-xs font-bold ${isActive ? '' : 'text-gray-400'}`}>{count}</span>
+                    )}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {/* Ticker chips */}
+          {tickerChips.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">By Ticker</p>
+              <div className="flex flex-wrap gap-1.5">
+                {tickerChips.map(([ticker, count]) => (
+                  <button
+                    key={ticker}
+                    onClick={() => setSearchQuery(prev => prev === ticker ? '' : ticker)}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-all ${
+                      searchQuery === ticker
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                    }`}
+                  >
+                    {ticker}
+                    <span className={`ml-1 ${searchQuery === ticker ? 'text-gray-400' : 'text-gray-400'}`}>{count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="text-center py-24">
-            <FolderOpen size={48} className="mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-semibold text-gray-500">
-              {documents.length === 0 ? 'No documents yet' : 'No matches found'}
-            </h3>
-            <p className="text-sm text-gray-400 mt-1">
-              {documents.length === 0 ? 'Upload your first document to get started' : 'Try adjusting your search or filters'}
-            </p>
+        {/* Main content */}
+        <div>
+          {/* Search bar */}
+          <div className="relative mb-6">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search documents, tickers, notes..."
+              className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-2xl text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 shadow-sm transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="space-y-8">
-            {groupedDocuments.map(group => (
-              <section key={group.value}>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${CATEGORY_COLORS[group.value] || CATEGORY_COLORS.other}`}>
-                      {group.label}
-                    </span>
-                    <span className="text-sm text-gray-400">{group.documents.length} file{group.documents.length !== 1 ? 's' : ''}</span>
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                  {group.documents.map(doc => (
-                    <DocumentCard
-                      key={doc.id}
-                      doc={doc}
-                      confirmDeleteId={confirmDeleteId}
-                      setConfirmDeleteId={setConfirmDeleteId}
-                      handleDelete={handleDelete}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
+          {/* Document list */}
+          {filtered.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
+                <FolderOpen size={28} className="text-gray-300" />
+              </div>
+              <h3 className="text-base font-semibold text-gray-500">
+                {documents.length === 0 ? 'No documents yet' : 'No matches'}
+              </h3>
+              <p className="text-sm text-gray-400 mt-1">
+                {documents.length === 0 ? 'Drag and drop files or click Upload to get started' : 'Try a different search or category'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map(doc => {
+                const cat = CATEGORIES.find(c => c.value === doc.category);
+                const colors = COLOR_MAP[cat?.color || 'gray'];
+                const isDeleting = confirmDeleteId === doc.id;
+
+                return (
+                  <div
+                    key={doc.id}
+                    className="group bg-white rounded-2xl border border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-center gap-4 px-5 py-4">
+                      {/* File icon */}
+                      <div className="flex-shrink-0 w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center">
+                        {fileIcon(doc)}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-gray-900 truncate">{doc.title || doc.file_name}</h3>
+                          {doc.ticker && (
+                            <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                              {doc.ticker}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
+                            {cat?.label || doc.category}
+                          </span>
+                          <span className="text-xs text-gray-400">{formatDate(doc.uploaded_at)}</span>
+                          <span className="text-xs text-gray-400">{formatFileSize(doc.file_size)}</span>
+                        </div>
+                        {doc.notes && (
+                          <p className="text-xs text-gray-500 mt-1.5 truncate max-w-xl">{doc.notes}</p>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Open file"
+                        >
+                          <ExternalLink size={15} />
+                        </a>
+                        {isDeleting ? (
+                          <div className="flex items-center gap-1 ml-1">
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleDelete(doc.id)}
+                              className="text-[11px] font-semibold text-white bg-red-500 px-2.5 py-1 rounded-lg hover:bg-red-600 transition-colors"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(doc.id)}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -142,6 +142,8 @@ export default function HoldingsPage() {
     const tab = searchParams.get('tab');
     if (tab && ['summary', 'risk', 'factors'].includes(tab)) {
       setActiveSubTab(tab);
+    } else {
+      setActiveSubTab('summary');
     }
   }, [searchParams]);
 
@@ -359,7 +361,9 @@ export default function HoldingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Our Holdings</h1>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {activeSubTab === 'risk' ? 'Risk' : activeSubTab === 'factors' ? 'Factors' : 'Our Holdings'}
+          </h1>
         </div>
         <button
           onClick={refreshAll}
@@ -368,23 +372,6 @@ export default function HoldingsPage() {
           <RefreshCw size={14} className={quotesLoading ? 'animate-spin' : ''} />
           Refresh
         </button>
-      </div>
-
-      {/* Sub-tabs */}
-      <div className="flex gap-1 mb-8 bg-gray-100 rounded-2xl p-1 w-fit">
-        {['summary', 'risk', 'factors'].map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveSubTab(tab)}
-            className={`px-5 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
-              activeSubTab === tab
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
       </div>
 
       {/* ===== SUMMARY TAB ===== */}
