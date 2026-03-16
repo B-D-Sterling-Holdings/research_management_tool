@@ -12,6 +12,17 @@ const DEFAULT_THESIS = {
     exitPE: '',
     exitFCFYield: '',
     terminalGrowthRate: '',
+    researchWorkspace: {
+      note: '',
+      fundamentals: {
+        revenueGrowth: '',
+        profitability: '',
+        capitalReturn: '',
+        misc: '',
+      },
+      dueDiligenceItems: [],
+      dislocationItems: [],
+    },
   },
   newsUpdates: [],
   todos: [],

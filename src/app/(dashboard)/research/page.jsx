@@ -36,8 +36,51 @@ function normalizeQuestionItems(items) {
   return (items || []).map(item => (
     typeof item === 'string'
       ? { text: item, done: false, answer: '' }
-      : { text: item?.text || '', done: !!item?.done, answer: item?.answer || '' }
+      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
   ));
+}
+
+function hasTextValue(value) {
+  if (Array.isArray(value)) {
+    return value.some(block => block?.type === 'text'
+      ? Boolean(block.value?.trim())
+      : Boolean(block?.url));
+  }
+  return typeof value === 'string' ? Boolean(value.trim()) : Boolean(value);
+}
+
+function pickWorkspaceValue(primary, fallback) {
+  if (Array.isArray(primary)) {
+    return primary.length > 0 ? primary : fallback;
+  }
+  if (typeof primary === 'string') {
+    return primary.trim() ? primary : fallback;
+  }
+  if (primary && typeof primary === 'object') {
+    return Object.keys(primary).length > 0 ? primary : fallback;
+  }
+  return primary ?? fallback;
+}
+
+function buildResearchWorkspace(thesis, stock) {
+  const workspace = thesis?.underwriting?.researchWorkspace || {};
+  const stockFundamentals = stock?.fundamentals || {};
+  const workspaceFundamentals = workspace.fundamentals || {};
+  return {
+    note: pickWorkspaceValue(workspace.note, stock?.note ?? '') || '',
+    fundamentals: {
+      revenueGrowth: pickWorkspaceValue(workspaceFundamentals.revenueGrowth, stockFundamentals.revenueGrowth || ''),
+      profitability: pickWorkspaceValue(workspaceFundamentals.profitability, stockFundamentals.profitability || ''),
+      capitalReturn: pickWorkspaceValue(workspaceFundamentals.capitalReturn, stockFundamentals.capitalReturn || ''),
+      misc: pickWorkspaceValue(workspaceFundamentals.misc, stockFundamentals.misc || ''),
+    },
+    dueDiligenceItems: normalizeQuestionItems(
+      pickWorkspaceValue(workspace.dueDiligenceItems, stock?.dueDiligenceItems ?? [])
+    ),
+    dislocationItems: normalizeQuestionItems(
+      pickWorkspaceValue(workspace.dislocationItems, stock?.dislocationItems ?? [])
+    ),
+  };
 }
 
 function updateStockInData(data, ticker, updater) {
@@ -59,6 +102,7 @@ function QuestionSection({
   icon: Icon,
   accentClasses,
   items,
+  ticker,
   onAdd,
   onToggleDone,
   onChangeQuestion,
@@ -129,15 +173,18 @@ function QuestionSection({
                 <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
                   Answer
                 </label>
-                <textarea
-                  value={item.answer || ''}
-                  onChange={(e) => onChangeAnswer(idx, e.target.value)}
-                  onBlur={(e) => onSaveAnswer(idx, e.target.value)}
-                  onInput={(e) => autoExpand(e.target)}
-                  placeholder="Write the full answer here..."
-                  rows={8}
-                  className="mt-2 w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
-                />
+                <div className="mt-2">
+                  <RichTextArea
+                    value={item.answer || ''}
+                    onChange={(value) => onChangeAnswer(idx, value)}
+                    onBlur={(value) => onSaveAnswer(idx, value)}
+                    onCommit={(value) => onSaveAnswer(idx, value)}
+                    ticker={ticker}
+                    placeholder="Write the full answer here. You can paste images directly into this answer."
+                    rows={8}
+                    className="w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
+                  />
+                </div>
               </div>
             </div>
           ))}
@@ -187,48 +234,13 @@ export default function ResearchPage() {
     [researchStocks, selectedTicker]
   );
 
-  const dueDiligenceItems = useMemo(
-    () => normalizeQuestionItems(selectedStock?.dueDiligenceItems),
-    [selectedStock?.dueDiligenceItems]
+  const researchWorkspace = useMemo(
+    () => buildResearchWorkspace(thesis, selectedStock),
+    [thesis, selectedStock]
   );
 
-  const dislocationItems = useMemo(
-    () => normalizeQuestionItems(selectedStock?.dislocationItems),
-    [selectedStock?.dislocationItems]
-  );
-
-  const persistWatchlistData = useCallback(async (updatedData) => {
-    if (!updatedData) return;
-    setAllData(updatedData);
-    cache.set('deep_research_watchlist', updatedData);
-    try {
-      await fetch('/api/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedData),
-      });
-    } catch {
-      setToast({ message: 'Failed to save watchlist research changes', type: 'error' });
-    }
-  }, [cache]);
-
-  const updateSelectedStockLocal = useCallback((updater) => {
-    setAllData(prev => {
-      const updated = updateStockInData(prev, selectedTicker, updater);
-      cache.set('deep_research_watchlist', updated);
-      return updated;
-    });
-  }, [cache, selectedTicker]);
-
-  const persistSelectedStock = useCallback(async (updater) => {
-    let updatedData;
-    setAllData(prev => {
-      updatedData = updateStockInData(prev, selectedTicker, updater);
-      cache.set('deep_research_watchlist', updatedData);
-      return updatedData;
-    });
-    await persistWatchlistData(updatedData);
-  }, [cache, persistWatchlistData, selectedTicker]);
+  const dueDiligenceItems = researchWorkspace.dueDiligenceItems;
+  const dislocationItems = researchWorkspace.dislocationItems;
 
   const loadResearchStocks = useCallback(async () => {
     try {
@@ -361,6 +373,27 @@ export default function ResearchPage() {
     setThesisDirty(true);
   };
 
+  const commitThesisField = useCallback((field, value) => {
+    const updated = { ...(thesis || {}), [field]: value };
+    setThesis(updated);
+    setThesisDirty(true);
+    saveThesis(updated);
+  }, [saveThesis, thesis]);
+
+  const updateResearchWorkspace = useCallback((updater, persist = false) => {
+    const nextWorkspace = updater(buildResearchWorkspace(thesis, selectedStock));
+    const updated = {
+      ...(thesis || {}),
+      underwriting: {
+        ...((thesis || {}).underwriting || {}),
+        researchWorkspace: nextWorkspace,
+      },
+    };
+    setThesis(updated);
+    setThesisDirty(true);
+    if (persist) saveThesis(updated);
+  }, [saveThesis, selectedStock, thesis]);
+
   const addNewsUpdate = () => {
     setThesis(prev => ({
       ...prev,
@@ -485,27 +518,20 @@ export default function ResearchPage() {
   };
 
   const updateFundamentalBox = (key, value, persist = false) => {
-    const nextFundamentals = {
-      revenueGrowth: '',
-      profitability: '',
-      capitalReturn: '',
-      misc: '',
-      ...(selectedStock?.fundamentals || {}),
-      [key]: value,
-    };
-    if (persist) {
-      persistSelectedStock(stock => ({ ...stock, fundamentals: nextFundamentals }));
-      return;
-    }
-    updateSelectedStockLocal(stock => ({ ...stock, fundamentals: nextFundamentals }));
+    updateResearchWorkspace((workspace) => ({
+      ...workspace,
+      fundamentals: {
+        ...workspace.fundamentals,
+        [key]: value,
+      },
+    }), persist);
   };
 
   const updateQuestionList = (field, items, persist = false) => {
-    if (persist) {
-      persistSelectedStock(stock => ({ ...stock, [field]: items }));
-      return;
-    }
-    updateSelectedStockLocal(stock => ({ ...stock, [field]: items }));
+    updateResearchWorkspace((workspace) => ({
+      ...workspace,
+      [field]: items,
+    }), persist);
   };
 
   const addQuestion = (field) => {
@@ -826,9 +852,9 @@ export default function ResearchPage() {
               <Card className="mb-8">
                 <label className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-3">Why This Name Is Here</label>
                 <textarea
-                  value={selectedStock?.note || ''}
-                  onChange={(e) => updateSelectedStockLocal(stock => ({ ...stock, note: e.target.value }))}
-                  onBlur={(e) => persistSelectedStock(stock => ({ ...stock, note: e.target.value }))}
+                  value={researchWorkspace.note}
+                  onChange={(e) => updateResearchWorkspace(workspace => ({ ...workspace, note: e.target.value }))}
+                  onBlur={(e) => updateResearchWorkspace(workspace => ({ ...workspace, note: e.target.value }), true)}
                   onInput={(e) => autoExpand(e.target)}
                   rows={3}
                   placeholder="Summarize why this company graduated from the watchlist into deep research..."
@@ -895,7 +921,7 @@ export default function ResearchPage() {
                           {label}
                         </label>
                         <textarea
-                          value={selectedStock?.fundamentals?.[key] || ''}
+                          value={researchWorkspace.fundamentals[key] || ''}
                           onChange={(e) => updateFundamentalBox(key, e.target.value)}
                           onBlur={(e) => updateFundamentalBox(key, e.target.value, true)}
                           onInput={(e) => autoExpand(e.target)}
@@ -921,6 +947,7 @@ export default function ResearchPage() {
                   icon: 'text-blue-500 hover:text-blue-600',
                 }}
                 items={dueDiligenceItems}
+                ticker={selectedTicker}
                 onAdd={() => addQuestion('dueDiligenceItems')}
                 onToggleDone={(idx, done) => toggleQuestionDone('dueDiligenceItems', idx, done)}
                 onChangeQuestion={(idx, value) => updateQuestionText('dueDiligenceItems', idx, value)}
@@ -942,6 +969,7 @@ export default function ResearchPage() {
                   icon: 'text-amber-500 hover:text-amber-600',
                 }}
                 items={dislocationItems}
+                ticker={selectedTicker}
                 onAdd={() => addQuestion('dislocationItems')}
                 onToggleDone={(idx, done) => toggleQuestionDone('dislocationItems', idx, done)}
                 onChangeQuestion={(idx, value) => updateQuestionText('dislocationItems', idx, value)}
@@ -960,6 +988,8 @@ export default function ResearchPage() {
                   <RichTextArea
                     value={thesis.assumptions || ''}
                     onChange={value => updateThesisField('assumptions', value)}
+                    onBlur={value => commitThesisField('assumptions', value)}
+                    onCommit={value => commitThesisField('assumptions', value)}
                     ticker={selectedTicker}
                     placeholder="Write the main narrative, what matters most, and how the fundamental pieces connect..."
                     rows={5}

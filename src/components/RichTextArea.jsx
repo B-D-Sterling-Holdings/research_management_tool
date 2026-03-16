@@ -17,8 +17,10 @@ import { Plus, Trash2, ZoomIn, X, Image as ImageIcon } from 'lucide-react';
  *   placeholder: string
  *   rows: number
  *   className: string (applied to text areas)
+ *   onBlur: () => void
+ *   onCommit: (blocks: array) => void
  */
-export default function RichTextArea({ value, onChange, ticker, placeholder, rows = 4, className = '' }) {
+export default function RichTextArea({ value, onChange, ticker, placeholder, rows = 4, className = '', onBlur, onCommit }) {
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
 
@@ -71,6 +73,7 @@ export default function RichTextArea({ value, onChange, ticker, placeholder, row
         }
       }
       emitChange(newBlocks);
+      onCommit?.(newBlocks);
     } finally {
       setUploading(false);
     }
@@ -91,7 +94,9 @@ export default function RichTextArea({ value, onChange, ticker, placeholder, row
         merged.push(b);
       }
     }
-    emitChange(merged.length > 0 ? merged : [{ type: 'text', value: '' }]);
+    const finalBlocks = merged.length > 0 ? merged : [{ type: 'text', value: '' }];
+    emitChange(finalBlocks);
+    onCommit?.(finalBlocks);
   };
 
   const handlePaste = async (e, blockIdx) => {
@@ -156,6 +161,7 @@ export default function RichTextArea({ value, onChange, ticker, placeholder, row
               value={block.value}
               onChange={e => updateTextBlock(idx, e.target.value)}
               onPaste={e => handlePaste(e, idx)}
+              onBlur={() => onBlur?.(normalizedBlocks)}
               onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
               ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
               placeholder={idx === 0 ? placeholder : 'Continue writing...'}

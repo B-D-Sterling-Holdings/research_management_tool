@@ -21,6 +21,14 @@ function autoExpand(el) {
   el.style.height = el.scrollHeight + 'px';
 }
 
+function normalizeQuestionItems(items) {
+  return (items || []).map(item => (
+    typeof item === 'string'
+      ? { text: item, done: false, answer: '' }
+      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
+  ));
+}
+
 const DIP_PERIODS = [
   { key: '52w', label: '% from 52W High' },
   { key: '1d', label: '1D' },
@@ -947,9 +955,44 @@ export default function WatchlistPage() {
   };
 
   const moveStock = async (ticker, newStage) => {
-    await saveStocks(stocks.map(s =>
+    const stock = stocks.find(s => s.ticker === ticker);
+    const updatedStocks = stocks.map(s =>
       s.ticker === ticker ? { ...s, stage: newStage } : s
-    ));
+    );
+
+    await saveStocks(updatedStocks);
+
+    if (newStage !== 'research' || !stock) return;
+
+    try {
+      const thesisRes = await fetch(`/api/thesis/${ticker}`);
+      const thesis = await thesisRes.json();
+      const researchWorkspace = {
+        note: stock.note || '',
+        fundamentals: {
+          revenueGrowth: stock.fundamentals?.revenueGrowth || '',
+          profitability: stock.fundamentals?.profitability || '',
+          capitalReturn: stock.fundamentals?.capitalReturn || '',
+          misc: stock.fundamentals?.misc || '',
+        },
+        dueDiligenceItems: normalizeQuestionItems(stock.dueDiligenceItems || []),
+        dislocationItems: normalizeQuestionItems(stock.dislocationItems || []),
+      };
+
+      const updatedThesis = {
+        ...thesis,
+        underwriting: {
+          ...(thesis.underwriting || {}),
+          researchWorkspace,
+        },
+      };
+
+      await fetch(`/api/thesis/${ticker}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedThesis),
+      });
+    } catch {}
   };
 
   const updateNote = async (ticker, note) => {
