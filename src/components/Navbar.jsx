@@ -44,7 +44,7 @@ export default function Navbar() {
           />
           <span className="text-gray-400 text-sm font-medium">|</span>
           <span className="text-gray-700 font-semibold text-sm tracking-tight group-hover:text-emerald-700 transition-colors">
-            Research Tool
+            Research Management System
           </span>
         </Link>
 
