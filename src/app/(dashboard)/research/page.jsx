@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { RefreshCw, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn, ClipboardList, FlaskConical, Square, CheckSquare } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn, ClipboardList, FlaskConical, Square, CheckSquare, ChevronRight } from 'lucide-react';
 import Card from '@/components/Card';
 import StatCard from '@/components/StatCard';
 import FundamentalChart from '@/components/charts/FundamentalChart';
@@ -33,11 +33,21 @@ function autoExpand(el) {
 }
 
 function normalizeQuestionItems(items) {
-  return (items || []).map(item => (
-    typeof item === 'string'
-      ? { text: item, done: false, answer: '' }
-      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
-  ));
+  return (items || []).map(item => {
+    if (typeof item === 'string') {
+      return { text: item, done: false, answer: '', subQuestions: [] };
+    }
+    return {
+      text: item?.text || '',
+      done: !!item?.done,
+      answer: item?.answer ?? '',
+      subQuestions: (item?.subQuestions || []).map(sq => ({
+        text: sq?.text || '',
+        done: !!sq?.done,
+        answer: sq?.answer ?? '',
+      })),
+    };
+  });
 }
 
 function hasTextValue(value) {
@@ -110,7 +120,54 @@ function QuestionSection({
   onChangeAnswer,
   onSaveAnswer,
   onRemove,
+  onUpdateSubQuestions,
 }) {
+  const [expandedSubs, setExpandedSubs] = useState({});
+  const [subInputs, setSubInputs] = useState({});
+
+  const toggleSubExpanded = (idx) => {
+    setExpandedSubs(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const addSubQuestion = (parentIdx) => {
+    const text = (subInputs[parentIdx] || '').trim();
+    if (!text) return;
+    const item = items[parentIdx];
+    const newSubs = [...(item.subQuestions || []), { text, done: false, answer: '' }];
+    onUpdateSubQuestions(parentIdx, newSubs);
+    setSubInputs(prev => ({ ...prev, [parentIdx]: '' }));
+  };
+
+  const toggleSubDone = (parentIdx, subIdx) => {
+    const item = items[parentIdx];
+    const newSubs = (item.subQuestions || []).map((sq, si) =>
+      si === subIdx ? { ...sq, done: !sq.done } : sq
+    );
+    onUpdateSubQuestions(parentIdx, newSubs);
+  };
+
+  const updateSubText = (parentIdx, subIdx, text, persist = false) => {
+    const item = items[parentIdx];
+    const newSubs = (item.subQuestions || []).map((sq, si) =>
+      si === subIdx ? { ...sq, text } : sq
+    );
+    onUpdateSubQuestions(parentIdx, newSubs, persist);
+  };
+
+  const updateSubAnswer = (parentIdx, subIdx, value, persist = false) => {
+    const item = items[parentIdx];
+    const newSubs = (item.subQuestions || []).map((sq, si) =>
+      si === subIdx ? { ...sq, answer: value } : sq
+    );
+    onUpdateSubQuestions(parentIdx, newSubs, persist);
+  };
+
+  const removeSubQuestion = (parentIdx, subIdx) => {
+    const item = items[parentIdx];
+    const newSubs = (item.subQuestions || []).filter((_, si) => si !== subIdx);
+    onUpdateSubQuestions(parentIdx, newSubs);
+  };
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-2">
@@ -137,57 +194,151 @@ function QuestionSection({
         </div>
       ) : (
         <div className="mt-6 space-y-5">
-          {items.map((item, idx) => (
-            <div key={idx} className={`rounded-2xl border p-5 ${accentClasses.card}`}>
-              <div className="flex items-start gap-3 mb-4">
-                <button
-                  onClick={() => onToggleDone(idx, !item.done)}
-                  className={`mt-0.5 flex-shrink-0 transition-colors ${accentClasses.icon}`}
-                  title={item.done ? 'Mark incomplete' : 'Mark complete'}
-                >
-                  {item.done ? <CheckSquare size={18} /> : <Square size={18} />}
-                </button>
-                <div className="flex-1">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-                    Question {idx + 1}
-                  </label>
-                  <input
-                    type="text"
-                    value={item.text}
-                    onChange={(e) => onChangeQuestion(idx, e.target.value)}
-                    onBlur={(e) => onSaveQuestion(idx, e.target.value)}
-                    placeholder="Write the research question..."
-                    className="mt-2 w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                  />
+          {items.map((item, idx) => {
+            const subs = item.subQuestions || [];
+            const isSubExpanded = expandedSubs[idx] !== false;
+            return (
+              <div key={idx} className={`rounded-2xl border p-5 ${accentClasses.card}`}>
+                <div className="flex items-start gap-3 mb-4">
+                  <button
+                    onClick={() => onToggleDone(idx, !item.done)}
+                    className={`mt-0.5 flex-shrink-0 transition-colors ${accentClasses.icon}`}
+                    title={item.done ? 'Mark incomplete' : 'Mark complete'}
+                  >
+                    {item.done ? <CheckSquare size={18} /> : <Square size={18} />}
+                  </button>
+                  <div className="flex-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                      Question {idx + 1}
+                    </label>
+                    <input
+                      type="text"
+                      value={item.text}
+                      onChange={(e) => onChangeQuestion(idx, e.target.value)}
+                      onBlur={(e) => onSaveQuestion(idx, e.target.value)}
+                      placeholder="Write the research question..."
+                      className="mt-2 w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                    />
+                  </div>
+                  <button
+                    onClick={() => onRemove(idx)}
+                    className="flex-shrink-0 p-2 text-gray-300 hover:text-red-400 transition-colors"
+                    title="Remove question"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => onRemove(idx)}
-                  className="flex-shrink-0 p-2 text-gray-300 hover:text-red-400 transition-colors"
-                  title="Remove question"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
 
-              <div>
-                <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-                  Answer
-                </label>
-                <div className="mt-2">
-                  <RichTextArea
-                    value={item.answer || ''}
-                    onChange={(value) => onChangeAnswer(idx, value)}
-                    onBlur={(value) => onSaveAnswer(idx, value)}
-                    onCommit={(value) => onSaveAnswer(idx, value)}
-                    ticker={ticker}
-                    placeholder="Write the full answer here. You can paste images directly into this answer."
-                    rows={8}
-                    className="w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
-                  />
+                <div>
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                    Answer
+                  </label>
+                  <div className="mt-2">
+                    <RichTextArea
+                      value={item.answer || ''}
+                      onChange={(value) => onChangeAnswer(idx, value)}
+                      onBlur={(value) => onSaveAnswer(idx, value)}
+                      onCommit={(value) => onSaveAnswer(idx, value)}
+                      ticker={ticker}
+                      placeholder="Write the full answer here. You can paste images directly into this answer."
+                      rows={8}
+                      className="w-full bg-white border border-gray-200 rounded-2xl px-4 py-3 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
+                    />
+                  </div>
+                </div>
+
+                {/* Sub-questions */}
+                <div className="mt-4 border-t border-gray-100 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <button
+                      onClick={() => toggleSubExpanded(idx)}
+                      className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <ChevronRight size={12} className={`transition-transform ${isSubExpanded ? 'rotate-90' : ''}`} />
+                      Sub-Questions {subs.length > 0 && `(${subs.length})`}
+                    </button>
+                    <button
+                      onClick={() => { setExpandedSubs(prev => ({ ...prev, [idx]: true })); addSubQuestion(idx); }}
+                      className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md transition-colors ${accentClasses.button}`}
+                    >
+                      <Plus size={11} />
+                      Add
+                    </button>
+                  </div>
+
+                  {isSubExpanded && (
+                    <div className="space-y-3 ml-2">
+                      {subs.map((sq, si) => (
+                        <div key={si} className={`rounded-xl border p-4 ${accentClasses.card} bg-gray-50/50`}>
+                          <div className="flex items-start gap-2 mb-3">
+                            <button
+                              onClick={() => toggleSubDone(idx, si)}
+                              className={`mt-0.5 flex-shrink-0 transition-colors ${accentClasses.icon}`}
+                            >
+                              {sq.done ? <CheckSquare size={15} /> : <Square size={15} />}
+                            </button>
+                            <div className="flex-1">
+                              <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                                Sub-Question {si + 1}
+                              </label>
+                              <input
+                                type="text"
+                                value={sq.text}
+                                onChange={(e) => updateSubText(idx, si, e.target.value)}
+                                onBlur={(e) => updateSubText(idx, si, e.target.value, true)}
+                                placeholder="Write the sub-question..."
+                                className="mt-1 w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                              />
+                            </div>
+                            <button
+                              onClick={() => removeSubQuestion(idx, si)}
+                              className="flex-shrink-0 p-1.5 text-gray-300 hover:text-red-400 transition-colors"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          <div className="ml-6">
+                            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                              Answer
+                            </label>
+                            <div className="mt-1">
+                              <RichTextArea
+                                value={sq.answer || ''}
+                                onChange={(value) => updateSubAnswer(idx, si, value)}
+                                onBlur={(value) => updateSubAnswer(idx, si, value, true)}
+                                onCommit={(value) => updateSubAnswer(idx, si, value, true)}
+                                ticker={ticker}
+                                placeholder="Write the answer to this sub-question..."
+                                rows={4}
+                                className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none overflow-hidden"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <form
+                        onSubmit={(e) => { e.preventDefault(); addSubQuestion(idx); }}
+                        className="flex items-center gap-2"
+                      >
+                        <input
+                          value={subInputs[idx] || ''}
+                          onChange={(e) => setSubInputs(prev => ({ ...prev, [idx]: e.target.value }))}
+                          placeholder="Add a sub-question..."
+                          className={`flex-1 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all`}
+                        />
+                        <button
+                          type="submit"
+                          className={`flex items-center gap-1 text-[10px] font-semibold px-2.5 py-2 rounded-lg transition-colors ${accentClasses.button}`}
+                        >
+                          <Plus size={11} />
+                        </button>
+                      </form>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
@@ -560,6 +711,14 @@ export default function ResearchPage() {
   const removeQuestion = (field, idx) => {
     const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
     updateQuestionList(field, sourceItems.filter((_, i) => i !== idx), true);
+  };
+
+  const updateSubQuestions = (field, parentIdx, newSubs, persist = true) => {
+    const sourceItems = field === 'dueDiligenceItems' ? dueDiligenceItems : dislocationItems;
+    const nextItems = sourceItems.map((item, i) =>
+      i === parentIdx ? { ...item, subQuestions: newSubs } : item
+    );
+    updateQuestionList(field, nextItems, persist);
   };
 
   if (loading) {
@@ -956,6 +1115,7 @@ export default function ResearchPage() {
                 onChangeAnswer={(idx, value) => updateQuestionAnswer('dueDiligenceItems', idx, value)}
                 onSaveAnswer={(idx, value) => updateQuestionAnswer('dueDiligenceItems', idx, value, true)}
                 onRemove={(idx) => removeQuestion('dueDiligenceItems', idx)}
+                onUpdateSubQuestions={(idx, subs, persist) => updateSubQuestions('dueDiligenceItems', idx, subs, persist)}
               />
 
               <QuestionSection
@@ -978,6 +1138,7 @@ export default function ResearchPage() {
                 onChangeAnswer={(idx, value) => updateQuestionAnswer('dislocationItems', idx, value)}
                 onSaveAnswer={(idx, value) => updateQuestionAnswer('dislocationItems', idx, value, true)}
                 onRemove={(idx) => removeQuestion('dislocationItems', idx)}
+                onUpdateSubQuestions={(idx, subs, persist) => updateSubQuestions('dislocationItems', idx, subs, persist)}
               />
 
               <Card>

@@ -69,11 +69,21 @@ function normalizeRichBlocks(value) {
 }
 
 function normalizeQuestionItems(items) {
-  return (items || []).map(item => (
-    typeof item === 'string'
-      ? { text: item, done: false, answer: '' }
-      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
-  ));
+  return (items || []).map(item => {
+    if (typeof item === 'string') {
+      return { text: item, done: false, answer: '', subQuestions: [] };
+    }
+    return {
+      text: item?.text || '',
+      done: !!item?.done,
+      answer: item?.answer ?? '',
+      subQuestions: (item?.subQuestions || []).map(sq => ({
+        text: sq?.text || '',
+        done: !!sq?.done,
+        answer: sq?.answer ?? '',
+      })),
+    };
+  });
 }
 
 function spacer(size = 200) {
@@ -522,6 +532,25 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
         const wroteAnswer = await appendRichContent(sections, item.answer);
         if (!wroteAnswer) {
           sections.push(bodyText('No written answer yet.', { color: COLORS.light, italic: true }));
+        }
+        // Render sub-questions
+        const subs = item.subQuestions || [];
+        for (const [si, sq] of subs.entries()) {
+          if (!sq.text?.trim() && !hasRichContent(sq.answer)) continue;
+          const subStatus = sq.done ? 'Completed' : 'Open';
+          sections.push(new Paragraph({
+            spacing: { before: 80, after: 40 },
+            indent: { left: 360 },
+            children: [
+              new TextRun({ text: `Sub-Question ${si + 1}: `, font: FONT, size: 18, bold: true, color: COLORS.dark }),
+              new TextRun({ text: sq.text || 'Untitled sub-question', font: FONT, size: 18, color: COLORS.dark }),
+              new TextRun({ text: `  [${subStatus}]`, font: FONT, size: 16, color: sq.done ? COLORS.accent : COLORS.light }),
+            ],
+          }));
+          const wroteSubAnswer = await appendRichContent(sections, sq.answer);
+          if (!wroteSubAnswer) {
+            sections.push(bodyText('No written answer yet.', { color: COLORS.light, italic: true }));
+          }
         }
       }
       sections.push(spacer(100));

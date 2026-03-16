@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useCache } from '@/lib/CacheContext';
 import { formatMoneyPrecise, formatPct, formatLargeNumber } from '@/lib/formatters';
-import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List, ClipboardList } from 'lucide-react';
+import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List, ClipboardList, ChevronRight } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -22,11 +22,21 @@ function autoExpand(el) {
 }
 
 function normalizeQuestionItems(items) {
-  return (items || []).map(item => (
-    typeof item === 'string'
-      ? { text: item, done: false, answer: '' }
-      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
-  ));
+  return (items || []).map(item => {
+    if (typeof item === 'string') {
+      return { text: item, done: false, answer: '', subQuestions: [] };
+    }
+    return {
+      text: item?.text || '',
+      done: !!item?.done,
+      answer: item?.answer ?? '',
+      subQuestions: (item?.subQuestions || []).map(sq => ({
+        text: sq?.text || '',
+        done: !!sq?.done,
+        answer: sq?.answer ?? '',
+      })),
+    };
+  });
 }
 
 const DIP_PERIODS = [
@@ -257,11 +267,13 @@ const BOX_STYLES = {
 /* ── Due Diligence Checklist ──────────────────────────────────── */
 function DueDiligenceChecklist({ items, onUpdate }) {
   const [inputVal, setInputVal] = useState('');
+  const [subInputs, setSubInputs] = useState({});
+  const [expandedItems, setExpandedItems] = useState({});
 
   const addItem = () => {
     const text = inputVal.trim();
     if (!text) return;
-    onUpdate([...items, { text, done: false }]);
+    onUpdate([...items, { text, done: false, subQuestions: [] }]);
     setInputVal('');
   };
 
@@ -279,36 +291,140 @@ function DueDiligenceChecklist({ items, onUpdate }) {
     onUpdate(updated);
   };
 
+  const toggleExpanded = (idx) => {
+    setExpandedItems(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const addSubQuestion = (parentIdx) => {
+    const text = (subInputs[parentIdx] || '').trim();
+    if (!text) return;
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      return { ...item, subQuestions: [...(item.subQuestions || []), { text, done: false }] };
+    });
+    onUpdate(updated);
+    setSubInputs(prev => ({ ...prev, [parentIdx]: '' }));
+  };
+
+  const toggleSubQuestion = (parentIdx, subIdx) => {
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      const subs = (item.subQuestions || []).map((sq, si) =>
+        si === subIdx ? { ...sq, done: !sq.done } : sq
+      );
+      return { ...item, subQuestions: subs };
+    });
+    onUpdate(updated);
+  };
+
+  const updateSubText = (parentIdx, subIdx, text) => {
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      const subs = (item.subQuestions || []).map((sq, si) =>
+        si === subIdx ? { ...sq, text } : sq
+      );
+      return { ...item, subQuestions: subs };
+    });
+    onUpdate(updated);
+  };
+
+  const removeSubQuestion = (parentIdx, subIdx) => {
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      return { ...item, subQuestions: (item.subQuestions || []).filter((_, si) => si !== subIdx) };
+    });
+    onUpdate(updated);
+  };
+
   return (
     <div>
       <label className="text-xs font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-1.5">
         <ClipboardList size={12} />
         Due Diligence Questions
       </label>
-      <div className="mt-2 space-y-1.5">
-        {items.map((item, idx) => (
-          <div key={idx} className="flex items-start gap-2 group">
-            <button
-              onClick={() => toggleItem(idx)}
-              className="mt-0.5 flex-shrink-0 text-blue-500 hover:text-blue-600 transition-colors"
-            >
-              {item.done ? <CheckSquare size={16} /> : <Square size={16} />}
-            </button>
-            <input
-              defaultValue={item.text}
-              onBlur={(e) => updateText(idx, e.target.value)}
-              className={`flex-1 text-sm bg-transparent border-none outline-none py-0.5 ${
-                item.done ? 'line-through text-gray-400' : 'text-gray-700'
-              }`}
-            />
-            <button
-              onClick={() => removeItem(idx)}
-              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        ))}
+      <div className="mt-2 space-y-1">
+        {items.map((item, idx) => {
+          const subs = item.subQuestions || [];
+          const isExpanded = expandedItems[idx];
+          return (
+            <div key={idx}>
+              <div className="flex items-start gap-2 group">
+                <button
+                  onClick={() => toggleExpanded(idx)}
+                  className={`mt-1 flex-shrink-0 text-gray-400 hover:text-blue-500 transition-all ${isExpanded ? 'rotate-90' : ''}`}
+                >
+                  <ChevronRight size={12} />
+                </button>
+                <button
+                  onClick={() => toggleItem(idx)}
+                  className="mt-0.5 flex-shrink-0 text-blue-500 hover:text-blue-600 transition-colors"
+                >
+                  {item.done ? <CheckSquare size={16} /> : <Square size={16} />}
+                </button>
+                <input
+                  defaultValue={item.text}
+                  onBlur={(e) => updateText(idx, e.target.value)}
+                  className={`flex-1 text-sm bg-transparent border-none outline-none py-0.5 ${
+                    item.done ? 'line-through text-gray-400' : 'text-gray-700'
+                  }`}
+                />
+                {subs.length > 0 && (
+                  <span className="text-[10px] text-blue-400 font-medium mt-1">{subs.length}</span>
+                )}
+                <button
+                  onClick={() => removeItem(idx)}
+                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {isExpanded && (
+                <div className="ml-9 mt-1 mb-2 pl-3 border-l-2 border-blue-100 space-y-1">
+                  {subs.map((sq, si) => (
+                    <div key={si} className="flex items-start gap-2 group/sub">
+                      <button
+                        onClick={() => toggleSubQuestion(idx, si)}
+                        className="mt-0.5 flex-shrink-0 text-blue-400 hover:text-blue-500 transition-colors"
+                      >
+                        {sq.done ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </button>
+                      <input
+                        defaultValue={sq.text}
+                        onBlur={(e) => updateSubText(idx, si, e.target.value)}
+                        className={`flex-1 text-xs bg-transparent border-none outline-none py-0.5 ${
+                          sq.done ? 'line-through text-gray-400' : 'text-gray-600'
+                        }`}
+                      />
+                      <button
+                        onClick={() => removeSubQuestion(idx, si)}
+                        className="opacity-0 group-hover/sub:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); addSubQuestion(idx); }}
+                    className="flex items-center gap-1.5 mt-1"
+                  >
+                    <input
+                      value={subInputs[idx] || ''}
+                      onChange={(e) => setSubInputs(prev => ({ ...prev, [idx]: e.target.value }))}
+                      placeholder="Add sub-question..."
+                      className="flex-1 text-xs text-gray-600 bg-blue-50/30 border border-blue-100/60 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-200 transition-all"
+                    />
+                    <button
+                      type="submit"
+                      className="text-[10px] font-semibold text-blue-500 hover:text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-md transition-colors"
+                    >
+                      <Plus size={12} />
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <form
         onSubmit={(e) => { e.preventDefault(); addItem(); }}
@@ -334,11 +450,13 @@ function DueDiligenceChecklist({ items, onUpdate }) {
 /* ── Dislocation Checklist ────────────────────────────────────── */
 function DislocationChecklist({ items, onUpdate }) {
   const [inputVal, setInputVal] = useState('');
+  const [subInputs, setSubInputs] = useState({});
+  const [expandedItems, setExpandedItems] = useState({});
 
   const addItem = () => {
     const text = inputVal.trim();
     if (!text) return;
-    onUpdate([...items, { text, done: false }]);
+    onUpdate([...items, { text, done: false, subQuestions: [] }]);
     setInputVal('');
   };
 
@@ -356,36 +474,140 @@ function DislocationChecklist({ items, onUpdate }) {
     onUpdate(updated);
   };
 
+  const toggleExpanded = (idx) => {
+    setExpandedItems(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const addSubQuestion = (parentIdx) => {
+    const text = (subInputs[parentIdx] || '').trim();
+    if (!text) return;
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      return { ...item, subQuestions: [...(item.subQuestions || []), { text, done: false }] };
+    });
+    onUpdate(updated);
+    setSubInputs(prev => ({ ...prev, [parentIdx]: '' }));
+  };
+
+  const toggleSubQuestion = (parentIdx, subIdx) => {
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      const subs = (item.subQuestions || []).map((sq, si) =>
+        si === subIdx ? { ...sq, done: !sq.done } : sq
+      );
+      return { ...item, subQuestions: subs };
+    });
+    onUpdate(updated);
+  };
+
+  const updateSubText = (parentIdx, subIdx, text) => {
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      const subs = (item.subQuestions || []).map((sq, si) =>
+        si === subIdx ? { ...sq, text } : sq
+      );
+      return { ...item, subQuestions: subs };
+    });
+    onUpdate(updated);
+  };
+
+  const removeSubQuestion = (parentIdx, subIdx) => {
+    const updated = items.map((item, i) => {
+      if (i !== parentIdx) return item;
+      return { ...item, subQuestions: (item.subQuestions || []).filter((_, si) => si !== subIdx) };
+    });
+    onUpdate(updated);
+  };
+
   return (
     <div>
       <label className="text-xs font-semibold text-amber-600 uppercase tracking-wide flex items-center gap-1.5">
         <FlaskConical size={12} />
         Dislocation Questions
       </label>
-      <div className="mt-2 space-y-1.5">
-        {items.map((item, idx) => (
-          <div key={idx} className="flex items-start gap-2 group">
-            <button
-              onClick={() => toggleItem(idx)}
-              className="mt-0.5 flex-shrink-0 text-amber-500 hover:text-amber-600 transition-colors"
-            >
-              {item.done ? <CheckSquare size={16} /> : <Square size={16} />}
-            </button>
-            <input
-              defaultValue={item.text}
-              onBlur={(e) => updateText(idx, e.target.value)}
-              className={`flex-1 text-sm bg-transparent border-none outline-none py-0.5 ${
-                item.done ? 'line-through text-gray-400' : 'text-gray-700'
-              }`}
-            />
-            <button
-              onClick={() => removeItem(idx)}
-              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        ))}
+      <div className="mt-2 space-y-1">
+        {items.map((item, idx) => {
+          const subs = item.subQuestions || [];
+          const isExpanded = expandedItems[idx];
+          return (
+            <div key={idx}>
+              <div className="flex items-start gap-2 group">
+                <button
+                  onClick={() => toggleExpanded(idx)}
+                  className={`mt-1 flex-shrink-0 text-gray-400 hover:text-amber-500 transition-all ${isExpanded ? 'rotate-90' : ''}`}
+                >
+                  <ChevronRight size={12} />
+                </button>
+                <button
+                  onClick={() => toggleItem(idx)}
+                  className="mt-0.5 flex-shrink-0 text-amber-500 hover:text-amber-600 transition-colors"
+                >
+                  {item.done ? <CheckSquare size={16} /> : <Square size={16} />}
+                </button>
+                <input
+                  defaultValue={item.text}
+                  onBlur={(e) => updateText(idx, e.target.value)}
+                  className={`flex-1 text-sm bg-transparent border-none outline-none py-0.5 ${
+                    item.done ? 'line-through text-gray-400' : 'text-gray-700'
+                  }`}
+                />
+                {subs.length > 0 && (
+                  <span className="text-[10px] text-amber-400 font-medium mt-1">{subs.length}</span>
+                )}
+                <button
+                  onClick={() => removeItem(idx)}
+                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {isExpanded && (
+                <div className="ml-9 mt-1 mb-2 pl-3 border-l-2 border-amber-100 space-y-1">
+                  {subs.map((sq, si) => (
+                    <div key={si} className="flex items-start gap-2 group/sub">
+                      <button
+                        onClick={() => toggleSubQuestion(idx, si)}
+                        className="mt-0.5 flex-shrink-0 text-amber-400 hover:text-amber-500 transition-colors"
+                      >
+                        {sq.done ? <CheckSquare size={14} /> : <Square size={14} />}
+                      </button>
+                      <input
+                        defaultValue={sq.text}
+                        onBlur={(e) => updateSubText(idx, si, e.target.value)}
+                        className={`flex-1 text-xs bg-transparent border-none outline-none py-0.5 ${
+                          sq.done ? 'line-through text-gray-400' : 'text-gray-600'
+                        }`}
+                      />
+                      <button
+                        onClick={() => removeSubQuestion(idx, si)}
+                        className="opacity-0 group-hover/sub:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); addSubQuestion(idx); }}
+                    className="flex items-center gap-1.5 mt-1"
+                  >
+                    <input
+                      value={subInputs[idx] || ''}
+                      onChange={(e) => setSubInputs(prev => ({ ...prev, [idx]: e.target.value }))}
+                      placeholder="Add sub-question..."
+                      className="flex-1 text-xs text-gray-600 bg-amber-50/30 border border-amber-100/60 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-200 transition-all"
+                    />
+                    <button
+                      type="submit"
+                      className="text-[10px] font-semibold text-amber-500 hover:text-amber-600 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-md transition-colors"
+                    >
+                      <Plus size={12} />
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <form
         onSubmit={(e) => { e.preventDefault(); addItem(); }}
@@ -1115,7 +1337,7 @@ export default function WatchlistPage() {
           <section>
             <div className="flex items-center gap-2 mb-4">
               <FlaskConical size={18} className="text-amber-600" />
-              <h2 className="text-lg font-bold text-gray-800">Currently Researching</h2>
+              <h2 className="text-lg font-bold text-gray-800">On Queue for Researching</h2>
               <span className="text-xs text-gray-400 font-medium bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">
                 {researching.length}
               </span>
