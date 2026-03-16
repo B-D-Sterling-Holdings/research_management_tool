@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Download, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check } from 'lucide-react';
+import { RefreshCw, Download, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn } from 'lucide-react';
 import Card from '@/components/Card';
 import StatCard from '@/components/StatCard';
 import LineChart from '@/components/charts/LineChart';
@@ -12,6 +12,7 @@ import Toast from '@/components/Toast';
 import { formatMoney, formatLargeNumber, formatShareCount, formatNumber } from '@/lib/formatters';
 import { useCache } from '@/lib/CacheContext';
 import ValuationModel from '@/components/ValuationModel';
+import RichTextArea from '@/components/RichTextArea';
 
 export default function ResearchPage() {
   const cache = useCache();
@@ -185,6 +186,57 @@ export default function ResearchPage() {
     setThesis(prev => ({
       ...prev,
       newsUpdates: (prev.newsUpdates || []).map((entry, i) => i === idx ? { ...entry, [field]: value } : entry),
+    }));
+    setThesisDirty(true);
+  };
+
+  const [imageUploading, setImageUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const uploadNewsImage = async (newsIdx, files) => {
+    if (!files || files.length === 0 || !selectedTicker) return;
+    setImageUploading(true);
+    try {
+      const newImages = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('ticker', selectedTicker);
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.url) {
+          newImages.push({ url: data.url, path: data.path, name: file.name });
+        }
+      }
+      if (newImages.length > 0) {
+        setThesis(prev => ({
+          ...prev,
+          newsUpdates: (prev.newsUpdates || []).map((entry, i) => {
+            if (i !== newsIdx) return entry;
+            return { ...entry, images: [...(entry.images || []), ...newImages] };
+          }),
+        }));
+        setThesisDirty(true);
+      }
+    } catch (e) {
+      setToast({ message: 'Failed to upload image', type: 'error' });
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  const removeNewsImage = async (newsIdx, imgIdx) => {
+    const entry = thesis.newsUpdates?.[newsIdx];
+    const img = entry?.images?.[imgIdx];
+    if (img?.path) {
+      try { await fetch(`/api/upload?path=${encodeURIComponent(img.path)}`, { method: 'DELETE' }); } catch {}
+    }
+    setThesis(prev => ({
+      ...prev,
+      newsUpdates: (prev.newsUpdates || []).map((entry, i) => {
+        if (i !== newsIdx) return entry;
+        return { ...entry, images: (entry.images || []).filter((_, j) => j !== imgIdx) };
+      }),
     }));
     setThesisDirty(true);
   };
@@ -630,17 +682,16 @@ export default function ResearchPage() {
                     </div>
                   </div>
 
-                  {/* Assumptions */}
+                  {/* The Story — rich text with inline images */}
                   <div className="mb-6">
-                    <label className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-3">The Story</label>
-                    <textarea
+                    <label className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">The Story</label>
+                    <p className="text-[10px] text-gray-400 mb-3">Paste images with Ctrl+V or hover to add via the image icon</p>
+                    <RichTextArea
                       value={thesis.assumptions || ''}
-                      onChange={e => updateThesisField('assumptions', e.target.value)}
-                      onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                      ref={el => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                      onChange={val => updateThesisField('assumptions', val)}
+                      ticker={selectedTicker}
                       placeholder="What assumptions underpin your thesis? E.g., continued market share gains, margin expansion from scale, durable competitive moat..."
                       rows={4}
-                      className="w-full bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 placeholder:text-gray-300 resize-none overflow-hidden"
                     />
                   </div>
 
@@ -802,6 +853,60 @@ export default function ResearchPage() {
                               className="w-full bg-amber-50/50 border border-amber-200/60 rounded-xl px-4 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all duration-200 placeholder:text-amber-300 resize-none overflow-hidden"
                             />
                           </div>
+
+                          {/* ── Attached Images ── */}
+                          <div className="mt-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider flex items-center gap-1">
+                                <ImageIcon size={11} />
+                                Attached Images
+                              </label>
+                              <label className={`flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700 cursor-pointer transition-colors ${imageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                                <Plus size={12} />
+                                {imageUploading ? 'Uploading...' : 'Add Image'}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={e => uploadNewsImage(activeIdx, Array.from(e.target.files))}
+                                />
+                              </label>
+                            </div>
+                            {(entry.images && entry.images.length > 0) ? (
+                              <div className="grid grid-cols-3 gap-2">
+                                {entry.images.map((img, imgIdx) => (
+                                  <div key={imgIdx} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                                    <img
+                                      src={img.url}
+                                      alt={img.name || 'Attached image'}
+                                      className="w-full h-24 object-cover cursor-pointer"
+                                      onClick={() => setPreviewImage(img.url)}
+                                    />
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
+                                      <button
+                                        onClick={() => setPreviewImage(img.url)}
+                                        className="p-1 bg-white/90 rounded-md text-gray-700 hover:bg-white"
+                                      >
+                                        <ZoomIn size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => removeNewsImage(activeIdx, imgIdx)}
+                                        className="p-1 bg-white/90 rounded-md text-red-500 hover:bg-white"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                    <p className="text-[9px] text-gray-400 truncate px-1.5 py-0.5">{img.name}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center py-4 border border-dashed border-gray-200 rounded-lg">
+                                <p className="text-xs text-gray-300">No images attached</p>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -881,6 +986,27 @@ export default function ResearchPage() {
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center p-8"
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            onClick={() => setPreviewImage(null)}
+            className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+          <img
+            src={previewImage}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useCache } from '@/lib/CacheContext';
 import { formatMoneyPrecise, formatPct, formatLargeNumber } from '@/lib/formatters';
-import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List } from 'lucide-react';
+import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List, ClipboardList } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -246,6 +246,83 @@ const BOX_STYLES = {
   gray:    { bg: 'bg-gray-50', border: 'border-gray-200', ring: 'focus:ring-gray-200 focus:border-gray-300', label: 'text-gray-600' },
 };
 
+/* ── Due Diligence Checklist ──────────────────────────────────── */
+function DueDiligenceChecklist({ items, onUpdate }) {
+  const [inputVal, setInputVal] = useState('');
+
+  const addItem = () => {
+    const text = inputVal.trim();
+    if (!text) return;
+    onUpdate([...items, { text, done: false }]);
+    setInputVal('');
+  };
+
+  const toggleItem = (idx) => {
+    const updated = items.map((item, i) => i === idx ? { ...item, done: !item.done } : item);
+    onUpdate(updated);
+  };
+
+  const removeItem = (idx) => {
+    onUpdate(items.filter((_, i) => i !== idx));
+  };
+
+  const updateText = (idx, text) => {
+    const updated = items.map((item, i) => i === idx ? { ...item, text } : item);
+    onUpdate(updated);
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-1.5">
+        <ClipboardList size={12} />
+        Due Diligence Questions
+      </label>
+      <div className="mt-2 space-y-1.5">
+        {items.map((item, idx) => (
+          <div key={idx} className="flex items-start gap-2 group">
+            <button
+              onClick={() => toggleItem(idx)}
+              className="mt-0.5 flex-shrink-0 text-blue-500 hover:text-blue-600 transition-colors"
+            >
+              {item.done ? <CheckSquare size={16} /> : <Square size={16} />}
+            </button>
+            <input
+              defaultValue={item.text}
+              onBlur={(e) => updateText(idx, e.target.value)}
+              className={`flex-1 text-sm bg-transparent border-none outline-none py-0.5 ${
+                item.done ? 'line-through text-gray-400' : 'text-gray-700'
+              }`}
+            />
+            <button
+              onClick={() => removeItem(idx)}
+              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); addItem(); }}
+        className="flex items-center gap-2 mt-2"
+      >
+        <input
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          placeholder="Add a due diligence question..."
+          className="flex-1 text-sm text-gray-700 bg-blue-50/50 border border-blue-200/60 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition-all"
+        />
+        <button
+          type="submit"
+          className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors"
+        >
+          <Plus size={14} />
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /* ── Dislocation Checklist ────────────────────────────────────── */
 function DislocationChecklist({ items, onUpdate }) {
   const [inputVal, setInputVal] = useState('');
@@ -458,6 +535,12 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
               })}
             </div>
           </div>
+
+          {/* Due Diligence Questions — checklist */}
+          <DueDiligenceChecklist
+            items={stock.dueDiligenceItems || []}
+            onUpdate={(items) => onUpdateResearch(stock.ticker, 'dueDiligenceItems', items)}
+          />
 
           {/* Dislocation Questions — checklist */}
           <DislocationChecklist

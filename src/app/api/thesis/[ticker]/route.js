@@ -17,6 +17,21 @@ const DEFAULT_THESIS = {
   todos: [],
 };
 
+// assumptions can be a plain string (legacy) or a JSON array of blocks (new rich text)
+// Store as JSON string in TEXT column for backwards compat
+function serializeAssumptions(val) {
+  if (Array.isArray(val)) return JSON.stringify(val);
+  return val || '';
+}
+
+function deserializeAssumptions(val) {
+  if (!val) return '';
+  if (typeof val === 'string' && val.startsWith('[')) {
+    try { return JSON.parse(val); } catch { return val; }
+  }
+  return val;
+}
+
 export async function GET(request, { params }) {
   const { ticker } = await params;
   const upper = ticker.toUpperCase();
@@ -35,7 +50,7 @@ export async function GET(request, { params }) {
     ticker: upper,
     ...DEFAULT_THESIS,
     coreReasons: data.core_reasons || DEFAULT_THESIS.coreReasons,
-    assumptions: data.assumptions || '',
+    assumptions: deserializeAssumptions(data.assumptions),
     valuation: data.valuation || '',
     underwriting: { ...DEFAULT_THESIS.underwriting, ...(data.underwriting || {}) },
     newsUpdates: data.news_updates || [],
@@ -52,7 +67,7 @@ export async function POST(request, { params }) {
     const row = {
       ticker: upper,
       core_reasons: body.coreReasons || DEFAULT_THESIS.coreReasons,
-      assumptions: body.assumptions || '',
+      assumptions: serializeAssumptions(body.assumptions),
       valuation: body.valuation || '',
       underwriting: { ...DEFAULT_THESIS.underwriting, ...(body.underwriting || {}) },
       news_updates: body.newsUpdates || [],
@@ -67,7 +82,7 @@ export async function POST(request, { params }) {
       success: true,
       ticker: upper,
       coreReasons: row.core_reasons,
-      assumptions: row.assumptions,
+      assumptions: deserializeAssumptions(row.assumptions),
       valuation: row.valuation,
       underwriting: row.underwriting,
       newsUpdates: row.news_updates,
