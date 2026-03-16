@@ -1,54 +1,224 @@
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   WidthType, AlignmentType, BorderStyle, ImageRun, HeadingLevel,
-  ShadingType, TableBorders, PageBreak,
+  ShadingType, PageBreak,
 } from 'docx';
 import { saveAs } from 'file-saver';
 import { Chart } from 'chart.js';
 
-const COLORS = {
-  primary: '0F766E',
-  dark: '111827',
-  mid: '6B7280',
+// ── Color palette inspired by academic equity research ──
+const C = {
+  navy: '1B2A4A',
+  dark: '1F2937',
+  mid: '4B5563',
   light: '9CA3AF',
-  accent: '10B981',
-  headerBg: 'F0FDF4',
-  rowAlt: 'F9FAFB',
-  border: 'E5E7EB',
+  accent: '1B6B4A',
+  accentLight: '2D9D6E',
+  blue: '2563EB',
+  amber: 'B45309',
+  red: 'DC2626',
+  headerBg: 'E8EDF5',
+  headerBg2: 'F0F4FA',
+  rowAlt: 'F8FAFC',
+  border: 'D1D5DB',
+  borderLight: 'E5E7EB',
   white: 'FFFFFF',
+  coverBg: '1B2A4A',
 };
 
 const FONT = 'Calibri';
+const FONT_SERIF = 'Cambria';
+
+// ── Utility functions ──
 
 function heading(text, level = HeadingLevel.HEADING_1, opts = {}) {
+  const sizes = {
+    [HeadingLevel.HEADING_1]: 30,
+    [HeadingLevel.HEADING_2]: 24,
+    [HeadingLevel.HEADING_3]: 21,
+  };
   return new Paragraph({
     heading: level,
-    spacing: { before: level === HeadingLevel.HEADING_1 ? 400 : 240, after: 120 },
+    spacing: { before: level === HeadingLevel.HEADING_1 ? 360 : 200, after: 100 },
     keepNext: true,
     ...opts,
-    children: [new TextRun({ text, font: FONT, bold: true, size: level === HeadingLevel.HEADING_1 ? 32 : level === HeadingLevel.HEADING_2 ? 26 : 22, color: COLORS.dark })],
+    children: [new TextRun({
+      text,
+      font: FONT_SERIF,
+      bold: true,
+      size: sizes[level] || 24,
+      color: C.navy,
+    })],
+  });
+}
+
+function sectionTitle(text) {
+  return new Paragraph({
+    spacing: { before: 300, after: 60 },
+    keepNext: true,
+    border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: C.navy } },
+    children: [new TextRun({
+      text: text.toUpperCase(),
+      font: FONT,
+      bold: true,
+      size: 24,
+      color: C.navy,
+    })],
+  });
+}
+
+function subSectionTitle(text) {
+  return new Paragraph({
+    spacing: { before: 240, after: 80 },
+    keepNext: true,
+    children: [new TextRun({
+      text,
+      font: FONT_SERIF,
+      bold: true,
+      size: 22,
+      color: C.navy,
+    })],
   });
 }
 
 function bodyText(text, opts = {}) {
+  if (!text || !text.trim()) return null;
   return new Paragraph({
-    spacing: { after: 120 },
-    children: [new TextRun({ text, font: FONT, size: 20, color: opts.color || COLORS.dark, bold: opts.bold, italics: opts.italic })],
+    spacing: { after: 100, line: 276 },
+    alignment: opts.justify ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
+    indent: opts.indent ? { left: opts.indent } : undefined,
+    children: [new TextRun({
+      text,
+      font: opts.font || FONT_SERIF,
+      size: opts.size || 20,
+      color: opts.color || C.dark,
+      bold: opts.bold,
+      italics: opts.italic,
+    })],
   });
 }
 
-function richContentToLines(value) {
+function bodyParagraph(text) {
+  if (!text || !text.trim()) return null;
+  return new Paragraph({
+    spacing: { after: 120, line: 276 },
+    alignment: AlignmentType.JUSTIFIED,
+    children: [new TextRun({
+      text,
+      font: FONT_SERIF,
+      size: 20,
+      color: C.dark,
+    })],
+  });
+}
+
+function spacer(size = 200) {
+  return new Paragraph({ spacing: { before: size, after: 0 }, children: [] });
+}
+
+function pageBreakParagraph() {
+  return new Paragraph({ children: [new TextRun({ children: [new PageBreak()] })] });
+}
+
+function dividerLine() {
+  return new Paragraph({
+    spacing: { before: 120, after: 120 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: C.borderLight } },
+    children: [],
+  });
+}
+
+function bulletPoint(text, opts = {}) {
+  return new Paragraph({
+    bullet: { level: opts.level || 0 },
+    spacing: { after: 60, line: 276 },
+    indent: opts.indent ? { left: opts.indent } : undefined,
+    children: [new TextRun({
+      text,
+      font: FONT_SERIF,
+      size: opts.size || 20,
+      color: opts.color || C.dark,
+      bold: opts.bold,
+      italics: opts.italic,
+    })],
+  });
+}
+
+function fmt(v, dec = 2) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return Number(v).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+function fmtPct(v, dec = 1) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return (v * 100).toFixed(dec) + '%';
+}
+
+function fmtLarge(v) {
+  if (!v) return '—';
+  const n = Number(v);
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  return `$${fmt(n)}`;
+}
+
+function fmtVol(v) {
+  if (!v) return '—';
+  const n = Number(v);
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+  return fmt(n, 0);
+}
+
+// ── Table helpers ──
+
+const TB_NONE = { style: BorderStyle.NONE, size: 0, color: C.white };
+const TB_LINE = { style: BorderStyle.SINGLE, size: 1, color: C.border };
+const TB_HEAVY = { style: BorderStyle.SINGLE, size: 2, color: C.navy };
+
+function makeCell(text, opts = {}) {
+  const borders = {};
+  if (opts.borderTop) borders.top = opts.heavyBorder ? TB_HEAVY : TB_LINE;
+  else borders.top = TB_NONE;
+  if (opts.borderBottom) borders.bottom = opts.heavyBorder ? TB_HEAVY : TB_LINE;
+  else borders.bottom = TB_NONE;
+  borders.left = TB_NONE;
+  borders.right = TB_NONE;
+
+  return new TableCell({
+    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
+    shading: opts.shading ? { type: ShadingType.CLEAR, fill: opts.shading } : undefined,
+    borders,
+    margins: { top: 40, bottom: 40, left: 80, right: 80 },
+    children: [new Paragraph({
+      alignment: opts.align || AlignmentType.LEFT,
+      children: [new TextRun({
+        text: String(text ?? ''),
+        font: opts.font || FONT,
+        size: opts.size || 18,
+        bold: opts.bold,
+        color: opts.color || C.dark,
+        italics: opts.italic,
+      })],
+    })],
+  });
+}
+
+function metricCell(text, opts = {}) {
+  return makeCell(text, {
+    ...opts,
+    borderBottom: true,
+    size: 18,
+  });
+}
+
+// ── Rich content / Image helpers ──
+
+function normalizeRichBlocks(value) {
   if (!value) return [];
-  if (typeof value === 'string') {
-    return value.split('\n').map(line => line.trim()).filter(Boolean);
-  }
-  if (Array.isArray(value)) {
-    return value
-      .filter(block => block?.type === 'text' && typeof block.value === 'string')
-      .flatMap(block => block.value.split('\n'))
-      .map(line => line.trim())
-      .filter(Boolean);
-  }
+  if (typeof value === 'string') return [{ type: 'text', value }];
+  if (Array.isArray(value)) return value;
   return [];
 }
 
@@ -59,13 +229,6 @@ function hasRichContent(value) {
     if (block?.type === 'text' && typeof block.value === 'string' && block.value.trim()) return true;
     return false;
   });
-}
-
-function normalizeRichBlocks(value) {
-  if (!value) return [];
-  if (typeof value === 'string') return [{ type: 'text', value }];
-  if (Array.isArray(value)) return value;
-  return [];
 }
 
 function normalizeQuestionItems(items) {
@@ -86,80 +249,15 @@ function normalizeQuestionItems(items) {
   });
 }
 
-function spacer(size = 200) {
-  return new Paragraph({ spacing: { before: size, after: 0 }, children: [] });
-}
-
-function dividerLine() {
-  return new Paragraph({
-    spacing: { before: 200, after: 200 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: COLORS.border } },
-    children: [],
-  });
-}
-
-function bulletPoint(text) {
-  return new Paragraph({
-    bullet: { level: 0 },
-    spacing: { after: 60 },
-    children: [new TextRun({ text, font: FONT, size: 20, color: COLORS.dark })],
-  });
-}
-
-function pageBreakParagraph() {
-  return new Paragraph({
-    children: [new TextRun({ children: [new PageBreak()] })],
-  });
-}
-
-function fmt(v, dec = 2) {
-  if (v === null || v === undefined || isNaN(v)) return '—';
-  return Number(v).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-}
-
-function fmtPct(v, dec = 1) {
-  if (v === null || v === undefined || isNaN(v)) return '—';
-  return (v * 100).toFixed(dec) + '%';
-}
-
-function makeCell(text, opts = {}) {
-  return new TableCell({
-    width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
-    shading: opts.shading ? { type: ShadingType.CLEAR, fill: opts.shading } : undefined,
-    margins: { top: 40, bottom: 40, left: 80, right: 80 },
-    children: [new Paragraph({
-      alignment: opts.align || AlignmentType.LEFT,
-      children: [new TextRun({ text: String(text), font: FONT, size: opts.size || 18, bold: opts.bold, color: opts.color || COLORS.dark })],
-    })],
-  });
-}
-
-function noBorders() {
-  return {
-    top: { style: BorderStyle.NONE },
-    bottom: { style: BorderStyle.NONE },
-    left: { style: BorderStyle.NONE },
-    right: { style: BorderStyle.NONE },
-  };
-}
-
-function lightBorders() {
-  const b = { style: BorderStyle.SINGLE, size: 1, color: COLORS.border };
-  return { top: b, bottom: b, left: b, right: b };
-}
-
-// Capture all Chart.js canvases as base64 PNGs with proper aspect ratio and no tooltips
 function captureCharts() {
   const canvases = document.querySelectorAll('.chart-container canvas');
   const images = [];
   canvases.forEach(canvas => {
     try {
-      // Get the Chart.js instance to disable tooltip before capture
       const chartInstance = Chart.getChart(canvas);
       let tooltipWasEnabled = true;
       if (chartInstance) {
         tooltipWasEnabled = chartInstance.options.plugins.tooltip.enabled !== false;
-        // Disable tooltip and clear any active hover state
         chartInstance.options.plugins.tooltip.enabled = false;
         chartInstance.setActiveElements([]);
         chartInstance.tooltip?.setActiveElements([], { x: 0, y: 0 });
@@ -171,7 +269,6 @@ function captureCharts() {
       const h = canvas.height;
       const label = canvas.closest('[data-chart-title]')?.getAttribute('data-chart-title') ||
         canvas.closest('.bg-white')?.querySelector('h3, p.text-sm.font-bold, .text-sm.font-semibold')?.textContent || '';
-      // Capture CAGR values from the sibling element below the chart
       const cagrs = [];
       const card = canvas.closest('[data-chart-title]') || canvas.closest('.bg-white');
       if (card) {
@@ -188,7 +285,6 @@ function captureCharts() {
       }
       images.push({ url, label, width: w, height: h, cagrs });
 
-      // Re-enable tooltip after capture
       if (chartInstance && tooltipWasEnabled) {
         chartInstance.options.plugins.tooltip.enabled = true;
         chartInstance.update('none');
@@ -198,19 +294,13 @@ function captureCharts() {
   return images;
 }
 
-function chartImageRun(dataUrl, canvasWidth, canvasHeight) {
+function chartImageRun(dataUrl, canvasWidth, canvasHeight, maxWidth = 520) {
   const base64 = dataUrl.split(',')[1];
   const buffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-  // Scale to fit within max width while preserving aspect ratio
-  const MAX_WIDTH = 560;
   const ratio = (canvasWidth && canvasHeight) ? canvasHeight / canvasWidth : 0.45;
-  const width = MAX_WIDTH;
-  const height = Math.round(MAX_WIDTH * ratio);
-  return new ImageRun({
-    data: buffer,
-    transformation: { width, height },
-    type: 'png',
-  });
+  const width = maxWidth;
+  const height = Math.round(maxWidth * ratio);
+  return new ImageRun({ data: buffer, transformation: { width, height }, type: 'png' });
 }
 
 async function remoteImageRun(url, opts = {}) {
@@ -219,20 +309,11 @@ async function remoteImageRun(url, opts = {}) {
     const res = await fetch(url);
     if (!res.ok) return null;
     const contentType = res.headers.get('content-type') || '';
-    const type = contentType.includes('png')
-      ? 'png'
-      : contentType.includes('gif')
-        ? 'gif'
-        : contentType.includes('bmp')
-          ? 'bmp'
-          : 'jpg';
+    const type = contentType.includes('png') ? 'png' : contentType.includes('gif') ? 'gif' : contentType.includes('bmp') ? 'bmp' : 'jpg';
     const buffer = new Uint8Array(await res.arrayBuffer());
     return new ImageRun({
       data: buffer,
-      transformation: {
-        width: opts.width || 520,
-        height: opts.height || 320,
-      },
+      transformation: { width: opts.width || 500, height: opts.height || 310 },
       type,
     });
   } catch {
@@ -246,14 +327,21 @@ async function appendRichContent(sections, value, opts = {}) {
 
   for (const block of blocks) {
     if (block?.type === 'image' && block.url) {
-      const imageRun = await remoteImageRun(block.url, { width: 520, height: 320 });
+      const imageRun = await remoteImageRun(block.url, { width: opts.imageWidth || 500, height: opts.imageHeight || 310 });
       if (imageRun) {
         sections.push(new Paragraph({
           spacing: { before: 60, after: 80 },
+          alignment: opts.centerImages ? AlignmentType.CENTER : AlignmentType.LEFT,
+          indent: opts.indent ? { left: opts.indent } : undefined,
           children: [imageRun],
         }));
         if (block.name) {
-          sections.push(bodyText(block.name, { color: COLORS.light, italic: true }));
+          sections.push(new Paragraph({
+            spacing: { after: 60 },
+            alignment: AlignmentType.CENTER,
+            indent: opts.indent ? { left: opts.indent } : undefined,
+            children: [new TextRun({ text: block.name, font: FONT, size: 16, color: C.light, italics: true })],
+          }));
         }
         wroteAny = true;
       }
@@ -261,8 +349,22 @@ async function appendRichContent(sections, value, opts = {}) {
     }
 
     if (block?.type === 'text' && typeof block.value === 'string') {
-      const lines = block.value.split('\n').map(line => line.trim()).filter(Boolean);
-      lines.forEach(line => sections.push(bodyText(line, opts.textOpts || {})));
+      const lines = block.value.split('\n').filter(l => l.trim());
+      lines.forEach(line => {
+        const p = bodyParagraph(line);
+        if (p) {
+          if (opts.indent) {
+            sections.push(new Paragraph({
+              spacing: { after: 100, line: 276 },
+              alignment: AlignmentType.JUSTIFIED,
+              indent: { left: opts.indent },
+              children: [new TextRun({ text: line, font: FONT_SERIF, size: 20, color: C.dark })],
+            }));
+          } else {
+            sections.push(p);
+          }
+        }
+      });
       if (lines.length > 0) wroteAny = true;
     }
   }
@@ -270,82 +372,250 @@ async function appendRichContent(sections, value, opts = {}) {
   return wroteAny;
 }
 
-export async function exportReport({ ticker, thesis, model, tickerData, liveQuote, displayPrice, reportType = 'position_review' }) {
+// ── Find a specific chart by label ──
+function findChart(chartImages, ...keywords) {
+  return chartImages.find(img => {
+    const lbl = img.label.toLowerCase();
+    return keywords.some(kw => lbl.includes(kw.toLowerCase()));
+  });
+}
+
+// ── Render a chart with title and CAGR ──
+function renderChart(sections, chart, figureNum, caption) {
+  if (!chart) return;
+
+  // Figure caption above chart
+  sections.push(new Paragraph({
+    spacing: { before: 200, after: 80 },
+    keepNext: true,
+    alignment: AlignmentType.CENTER,
+    children: [new TextRun({
+      text: `Figure ${figureNum}: ${caption}`,
+      font: FONT,
+      size: 18,
+      italics: true,
+      color: C.mid,
+    })],
+  }));
+
+  // Chart image
+  sections.push(new Paragraph({
+    spacing: { after: chart.cagrs?.length ? 40 : 100 },
+    keepNext: true,
+    alignment: AlignmentType.CENTER,
+    children: [chartImageRun(chart.url, chart.width, chart.height, 480)],
+  }));
+
+  // CAGR line
+  if (chart.cagrs && chart.cagrs.length > 0) {
+    sections.push(new Paragraph({
+      spacing: { after: 120 },
+      alignment: AlignmentType.CENTER,
+      children: chart.cagrs.flatMap((c, i) => [
+        ...(i > 0 ? [new TextRun({ text: '     ', font: FONT, size: 17 })] : []),
+        new TextRun({ text: `${c.label}: `, font: FONT, size: 17, color: C.light }),
+        new TextRun({ text: c.value, font: FONT, size: 17, bold: true, color: c.value.startsWith('-') ? C.red : C.accent }),
+      ]),
+    }));
+  }
+}
+
+// ── Render questions section (DD or Dislocation) ──
+async function renderQuestions(sections, title, items) {
+  const normalized = normalizeQuestionItems(items).filter(item => item.text.trim() || hasRichContent(item.answer));
+  if (normalized.length === 0) return;
+
+  sections.push(sectionTitle(title));
+
+  for (const [idx, item] of normalized.entries()) {
+    const status = item.done ? 'Completed' : 'Open';
+    const statusColor = item.done ? C.accent : C.light;
+
+    // Question header
+    sections.push(new Paragraph({
+      spacing: { before: 200, after: 80 },
+      keepNext: true,
+      children: [
+        new TextRun({ text: `Question ${idx + 1}: `, font: FONT, size: 21, bold: true, color: C.navy }),
+        new TextRun({ text: item.text || 'Untitled question', font: FONT_SERIF, size: 21, color: C.dark }),
+        new TextRun({ text: `  [${status}]`, font: FONT, size: 17, color: statusColor, italics: true }),
+      ],
+    }));
+
+    // Answer
+    const wroteAnswer = await appendRichContent(sections, item.answer, { centerImages: true });
+    if (!wroteAnswer) {
+      sections.push(bodyText('No written answer yet.', { color: C.light, italic: true }));
+    }
+
+    // Sub-questions
+    const subs = item.subQuestions || [];
+    for (const [si, sq] of subs.entries()) {
+      if (!sq.text?.trim() && !hasRichContent(sq.answer)) continue;
+      const subStatus = sq.done ? 'Completed' : 'Open';
+      const subStatusColor = sq.done ? C.accent : C.light;
+
+      sections.push(new Paragraph({
+        spacing: { before: 140, after: 60 },
+        indent: { left: 480 },
+        keepNext: true,
+        children: [
+          new TextRun({ text: `${idx + 1}.${si + 1}  `, font: FONT, size: 19, bold: true, color: C.navy }),
+          new TextRun({ text: sq.text || 'Untitled sub-question', font: FONT_SERIF, size: 19, color: C.dark }),
+          new TextRun({ text: `  [${subStatus}]`, font: FONT, size: 16, color: subStatusColor, italics: true }),
+        ],
+      }));
+
+      const wroteSubAnswer = await appendRichContent(sections, sq.answer, { indent: 480, centerImages: true });
+      if (!wroteSubAnswer) {
+        sections.push(new Paragraph({
+          spacing: { after: 60 },
+          indent: { left: 480 },
+          children: [new TextRun({ text: 'No written answer yet.', font: FONT_SERIF, size: 18, color: C.light, italics: true })],
+        }));
+      }
+    }
+
+    // Thin divider between questions
+    if (idx < normalized.length - 1) {
+      sections.push(new Paragraph({
+        spacing: { before: 100, after: 80 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: C.borderLight } },
+        children: [],
+      }));
+    }
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN EXPORT
+// ═══════════════════════════════════════════════════════════════
+
+export async function exportReport({ ticker, thesis, model, tickerData, liveQuote, displayPrice, reportType = 'position_review', equityRating = 0 }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const isResearchWorkspace = reportType === 'research_workspace';
   const researchWorkspace = thesis?.underwriting?.researchWorkspace || {};
-
-  // Capture chart images from the DOM
   const chartImages = captureCharts();
 
   const sections = [];
+  const q = liveQuote || {};
+  const val = tickerData?.valuation || {};
+  let figureNum = 0;
 
-  // ═══════════ COVER / TITLE ═══════════
-  sections.push(
-    new Paragraph({ spacing: { before: 2400, after: 0 }, children: [] }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 80 },
-      children: [new TextRun({ text: ticker, font: FONT, bold: true, size: 56, color: COLORS.primary })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 40 },
-      children: [new TextRun({ text: isResearchWorkspace ? 'Research Workspace Report' : 'Equity Research Update', font: FONT, size: 28, color: COLORS.mid })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 400 },
-      children: [new TextRun({ text: dateStr, font: FONT, size: 22, color: COLORS.light })],
-    }),
-  );
-
-  // ═══════════ KEY METRICS (on cover page) ═══════════
+  // ═══════════ PAGE 1: COVER ═══════════
   {
-    sections.push(spacer(400));
-    sections.push(dividerLine());
+    // Top header line: "Equity Research Report | Date | Exchange:TICKER"
+    sections.push(new Paragraph({
+      spacing: { before: 0, after: 0 },
+      children: [
+        new TextRun({ text: 'Equity Research Report', font: FONT, size: 18, bold: true, color: C.navy }),
+        new TextRun({ text: `  |  ${dateStr}  |  ${ticker}`, font: FONT, size: 18, color: C.mid }),
+      ],
+    }));
 
-    const q = liveQuote || {};
-    const val = tickerData?.valuation || {};
+    // Firm name with bottom rule
+    sections.push(new Paragraph({
+      spacing: { before: 20, after: 0 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.navy } },
+      children: [new TextRun({
+        text: 'B.D. Sterling Capital Management',
+        font: FONT,
+        size: 17,
+        bold: true,
+        color: C.accent,
+      })],
+    }));
 
-    // Helper formatters for large numbers
-    const fmtLarge = (v) => {
-      if (!v) return '—';
-      const n = Number(v);
-      if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
-      if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-      if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-      return `$${fmt(n)}`;
-    };
-    const fmtVol = (v) => {
-      if (!v) return '—';
-      const n = Number(v);
-      if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-      if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
-      return fmt(n, 0);
-    };
+    // Company name large
+    sections.push(new Paragraph({
+      spacing: { before: 240, after: 120 },
+      children: [new TextRun({
+        text: q.shortName || ticker,
+        font: FONT_SERIF,
+        bold: true,
+        size: 44,
+        color: C.navy,
+      })],
+    }));
 
-    // Compute operating margin and buyback yield from tickerData
+    // Info grid: Equity Rating | Price | Sector | Classification
+    const priceStr = displayPrice ? `$${fmt(displayPrice)}` : (q.price ? `$${fmt(q.price)}` : '—');
+    const starStr = equityRating > 0 ? '★'.repeat(equityRating) + '☆'.repeat(5 - equityRating) : '—';
+    const ratingLabel = equityRating > 0 ? 'BUY' : '—';
+
+    // Determine market cap classification
+    const mcap = q.marketCap ? Number(q.marketCap) : 0;
+    const classification = mcap >= 200e9 ? 'Mega Large Cap' : mcap >= 10e9 ? 'Large Cap' : mcap >= 2e9 ? 'Mid Cap' : mcap >= 300e6 ? 'Small Cap' : mcap > 0 ? 'Micro Cap' : '—';
+
+    // Labels row
+    sections.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: [
+            makeCell('Equity Rating', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
+            makeCell('Price', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
+            makeCell('Sector', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
+            makeCell('Classification', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
+          ],
+        }),
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 25, type: WidthType.PERCENTAGE },
+              borders: { top: TB_NONE, bottom: TB_NONE, left: TB_NONE, right: TB_NONE },
+              margins: { top: 40, bottom: 40, left: 80, right: 80 },
+              children: [new Paragraph({
+                children: [
+                  new TextRun({ text: ratingLabel, font: FONT, size: 18, bold: true, color: C.accent }),
+                  new TextRun({ text: `  ${starStr}`, font: FONT, size: 18, color: C.amber }),
+                ],
+              })],
+            }),
+            makeCell(`${priceStr} (${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`, { width: 25, size: 17 }),
+            makeCell(q.sector || '—', { width: 25, size: 17 }),
+            makeCell(classification, { width: 25, size: 17 }),
+          ],
+        }),
+      ],
+    }));
+
+    // Investment Summary heading + Story text
+    if (hasRichContent(thesis?.assumptions)) {
+      sections.push(new Paragraph({
+        spacing: { before: 300, after: 100 },
+        keepNext: true,
+        children: [new TextRun({
+          text: 'Investment Summary',
+          font: FONT_SERIF,
+          bold: true,
+          size: 26,
+          color: C.navy,
+        })],
+      }));
+      await appendRichContent(sections, thesis.assumptions);
+    }
+  }
+
+  // ═══════════ KEY METRICS TABLE ═══════════
+  {
+    sections.push(spacer(100));
+
     const opMargins = tickerData?.operating_margins || [];
     const latestOpMargin = opMargins.length ? opMargins[opMargins.length - 1].operating_margin : null;
     const shares = tickerData?.buybacks || [];
     let buybackYield = null;
     if (shares.length >= 5) {
       const cur = shares[shares.length - 1].shares_outstanding;
-      const prev = shares[shares.length - 5].shares_outstanding; // ~1 year ago
+      const prev = shares[shares.length - 5].shares_outstanding;
       if (cur && prev && prev > 0) buybackYield = ((prev - cur) / prev);
     }
-
-    // FCF yield from computed valuation or quote
     const fcfYield = val.fcfYield ? Number(val.fcfYield) : null;
-
-    // 52-week range
     const hi52 = q.fiftyTwoWeekHigh || val.high52w;
     const lo52 = q.fiftyTwoWeekLow || val.low52w;
     const range52 = (lo52 && hi52) ? `$${fmt(Number(lo52))} – $${fmt(Number(hi52))}` : '—';
-
-    // Net Debt / EBITDA — approximate from EV - MarketCap = Net Debt, EV/EBITDA gives EBITDA
     let netDebtEbitda = '—';
     if (q.enterpriseValue && q.marketCap && q.evToEbitda && q.evToEbitda > 0) {
       const netDebt = q.enterpriseValue - q.marketCap;
@@ -353,8 +623,8 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       if (ebitda > 0) netDebtEbitda = fmt(netDebt / ebitda, 1) + 'x';
     }
 
-    const metricsRows = [
-      ['Current Price', displayPrice ? `$${fmt(displayPrice)}` : '—'],
+    // Two-column metrics layout
+    const leftMetrics = [
       ['Market Cap', fmtLarge(q.marketCap)],
       ['Enterprise Value', fmtLarge(q.enterpriseValue)],
       ['P/E Ratio', q.trailingPE ? fmt(Number(q.trailingPE), 1) + 'x' : (val.peRatio ? fmt(Number(val.peRatio), 1) + 'x' : '—')],
@@ -362,307 +632,238 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       ['FCF Yield', fcfYield ? `${fmt(fcfYield, 1)}%` : '—'],
       ['Revenue Growth YoY', q.revenueGrowth != null ? `${(q.revenueGrowth * 100).toFixed(1)}%` : '—'],
       ['EPS Growth YoY', q.earningsGrowth != null ? `${(q.earningsGrowth * 100).toFixed(1)}%` : '—'],
+    ];
+
+    const rightMetrics = [
       ['Operating Margin', latestOpMargin != null ? `${(latestOpMargin * 100).toFixed(1)}%` : '—'],
       ['Return on Equity', q.roic != null ? `${(q.roic * 100).toFixed(1)}%` : '—'],
       ['Net Debt / EBITDA', netDebtEbitda],
       ['Buyback Yield', buybackYield != null ? `${(buybackYield * 100).toFixed(1)}%` : '—'],
       ['Dividend Yield', q.dividendYield != null ? `${Number(q.dividendYield).toFixed(2)}%` : '—'],
       ['52 Week Range', range52],
-      ['Average Daily Volume', fmtVol(q.avgVolume)],
+      ['Avg Daily Volume', fmtVol(q.avgVolume)],
     ];
 
-    sections.push(new Table({
-      width: { size: 65, type: WidthType.PERCENTAGE },
-      alignment: AlignmentType.CENTER,
-      borders: lightBorders(),
-      rows: [
-        new TableRow({
-          children: [
-            makeCell('Metric', { bold: true, shading: COLORS.headerBg, width: 50 }),
-            makeCell('Value', { bold: true, shading: COLORS.headerBg, align: AlignmentType.RIGHT, width: 50 }),
-          ],
-        }),
-        ...metricsRows.map((r, i) => new TableRow({
-          children: [
-            makeCell(r[0], { shading: i % 2 ? COLORS.rowAlt : COLORS.white }),
-            makeCell(r[1], { align: AlignmentType.RIGHT, bold: true, shading: i % 2 ? COLORS.rowAlt : COLORS.white }),
-          ],
-        })),
+    const maxRows = Math.max(leftMetrics.length, rightMetrics.length);
+    const tableRows = [];
+
+    // Header row
+    tableRows.push(new TableRow({
+      children: [
+        makeCell('Metric', { bold: true, shading: C.headerBg, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy }),
+        makeCell('Value', { bold: true, shading: C.headerBg, width: 25, align: AlignmentType.RIGHT, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy }),
+        makeCell('Metric', { bold: true, shading: C.headerBg, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy }),
+        makeCell('Value', { bold: true, shading: C.headerBg, width: 25, align: AlignmentType.RIGHT, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy }),
       ],
+    }));
+
+    for (let i = 0; i < maxRows; i++) {
+      const left = leftMetrics[i] || ['', ''];
+      const right = rightMetrics[i] || ['', ''];
+      const bg = i % 2 ? C.rowAlt : C.white;
+      tableRows.push(new TableRow({
+        children: [
+          makeCell(left[0], { shading: bg, width: 25, size: 17 }),
+          makeCell(left[1], { align: AlignmentType.RIGHT, bold: true, shading: bg, width: 25, size: 17 }),
+          makeCell(right[0], { shading: bg, width: 25, size: 17 }),
+          makeCell(right[1], { align: AlignmentType.RIGHT, bold: true, shading: bg, width: 25, size: 17 }),
+        ],
+      }));
+    }
+
+    // Bottom border
+    tableRows.push(new TableRow({
+      children: [
+        makeCell('', { width: 25, borderTop: true, heavyBorder: true }),
+        makeCell('', { width: 25, borderTop: true, heavyBorder: true }),
+        makeCell('', { width: 25, borderTop: true, heavyBorder: true }),
+        makeCell('', { width: 25, borderTop: true, heavyBorder: true }),
+      ],
+    }));
+
+    sections.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: tableRows,
     }));
   }
 
-  // ═══════════ FUNDAMENTAL CHARTS ═══════════
-  // Page break before charts section
-  if (chartImages.length > 0) {
-    sections.push(pageBreakParagraph());
-    sections.push(heading('Fundamental Analysis', HeadingLevel.HEADING_1));
-    sections.push(bodyText('The following charts illustrate the company\'s key financial metrics and trends over time.', { color: COLORS.mid }));
-    sections.push(spacer(80));
-
-    for (let ci = 0; ci < chartImages.length; ci++) {
-      const img = chartImages[ci];
-
-      // Page break before every 2nd chart (i.e. after every pair), but not before the 1st
-      if (ci > 0 && ci % 2 === 0) {
-        sections.push(pageBreakParagraph());
-      }
-
-      // Chart title — keepNext keeps it on same page as the image
-      if (img.label) {
-        sections.push(new Paragraph({
-          spacing: { before: ci % 2 === 0 ? 100 : 300, after: 80 },
-          keepNext: true,
-          children: [new TextRun({ text: img.label, font: FONT, size: 22, bold: true, color: COLORS.dark })],
-        }));
-      }
-
-      // Chart image — keepNext keeps it with CAGR line
-      sections.push(new Paragraph({
-        spacing: { after: img.cagrs?.length ? 40 : 120 },
-        keepNext: true,
-        children: [chartImageRun(img.url, img.width, img.height)],
-      }));
-
-      // CAGR values below chart
-      if (img.cagrs && img.cagrs.length > 0) {
-        sections.push(new Paragraph({
-          spacing: { after: 120 },
-          children: img.cagrs.flatMap((c, i) => [
-            ...(i > 0 ? [new TextRun({ text: '    ', font: FONT, size: 18 })] : []),
-            new TextRun({ text: `${c.label}: `, font: FONT, size: 18, color: COLORS.light }),
-            new TextRun({ text: c.value, font: FONT, size: 18, bold: true, color: c.value.startsWith('-') ? 'EF4444' : COLORS.primary }),
-          ]),
-        }));
-      }
-    }
-  }
-
-  // ═══════════ INVESTMENT THESIS ═══════════
-  if (thesis) {
-    sections.push(pageBreakParagraph());
-    sections.push(heading('Investment Thesis', HeadingLevel.HEADING_1));
-
-    // Core reasons (supports both old string format and new {title, description} format)
-    const reasons = (thesis.coreReasons || [])
-      .map(r => typeof r === 'string' ? { title: r, description: '' } : r)
-      .filter(r => r.title && r.title.trim());
-    if (reasons.length > 0) {
-      sections.push(heading('Core Reasons for Ownership', HeadingLevel.HEADING_2));
-      reasons.forEach(r => {
-        sections.push(bulletPoint(r.title));
-        if (r.description && r.description.trim()) {
-          r.description.split('\n').filter(l => l.trim()).forEach(line =>
-            sections.push(new Paragraph({
-              spacing: { after: 60 },
-              indent: { left: 720 },
-              children: [new TextRun({ text: line, font: FONT, size: 19, color: COLORS.mid })],
-            }))
-          );
-        }
-      });
-      sections.push(spacer(100));
-    }
-
-    // Key assumptions / The Story
-    if (normalizeRichBlocks(thesis.assumptions).length > 0) {
-      sections.push(heading('The Story', HeadingLevel.HEADING_2));
-      const wroteStory = await appendRichContent(sections, thesis.assumptions);
-      if (!wroteStory) {
-        sections.push(bodyText('No written story yet.', { color: COLORS.light, italic: true }));
-      }
-      sections.push(spacer(100));
-    }
-
-    // Valuation framework
-    if (thesis.valuation && thesis.valuation.trim()) {
-      sections.push(heading('Valuation Framework', HeadingLevel.HEADING_2));
-      thesis.valuation.split('\n').filter(l => l.trim()).forEach(line => sections.push(bodyText(line)));
-      sections.push(spacer(100));
-    }
-  }
-
-  if (isResearchWorkspace && thesis) {
-    sections.push(pageBreakParagraph());
-    sections.push(heading('Thesis Structure', HeadingLevel.HEADING_1));
-
-    if (normalizeRichBlocks(researchWorkspace.note).length > 0) {
-      sections.push(heading('Why This Name Is Here', HeadingLevel.HEADING_2));
-      const wroteNote = await appendRichContent(sections, researchWorkspace.note);
-      if (!wroteNote) {
-        sections.push(bodyText('No note yet.', { color: COLORS.light, italic: true }));
-      }
-      sections.push(spacer(100));
-    }
-
-    const fundamentals = researchWorkspace.fundamentals || {};
-    const thesisStructureSections = [
-      ['Revenue and Growth', fundamentals.revenueGrowth],
-      ['Profitability', fundamentals.profitability],
-      ['Capital Returned to Shareholders', fundamentals.capitalReturn],
-      ['Misc', fundamentals.misc],
-    ].filter(([, value]) => hasRichContent(value));
-
-    if (thesisStructureSections.length > 0) {
-      sections.push(heading('Fundamental Sections', HeadingLevel.HEADING_2));
-      for (const [title, value] of thesisStructureSections) {
-        sections.push(heading(title, HeadingLevel.HEADING_3));
-        const wroteSection = await appendRichContent(sections, value);
-        if (!wroteSection) {
-          sections.push(bodyText('No notes yet.', { color: COLORS.light, italic: true }));
-        }
-        sections.push(spacer(60));
-      }
-    }
-
-    const renderQuestions = async (title, items) => {
-      const normalized = normalizeQuestionItems(items).filter(item => item.text.trim() || hasRichContent(item.answer));
-      if (normalized.length === 0) return;
-      sections.push(heading(title, HeadingLevel.HEADING_2));
-      for (const [idx, item] of normalized.entries()) {
-        const status = item.done ? 'Completed' : 'Open';
-        sections.push(new Paragraph({
-          spacing: { before: 120, after: 60 },
-          children: [
-            new TextRun({ text: `Question ${idx + 1}: `, font: FONT, size: 20, bold: true, color: COLORS.dark }),
-            new TextRun({ text: item.text || 'Untitled question', font: FONT, size: 20, color: COLORS.dark }),
-            new TextRun({ text: `  [${status}]`, font: FONT, size: 18, color: item.done ? COLORS.accent : COLORS.light }),
-          ],
-        }));
-        const wroteAnswer = await appendRichContent(sections, item.answer);
-        if (!wroteAnswer) {
-          sections.push(bodyText('No written answer yet.', { color: COLORS.light, italic: true }));
-        }
-        // Render sub-questions
-        const subs = item.subQuestions || [];
-        for (const [si, sq] of subs.entries()) {
-          if (!sq.text?.trim() && !hasRichContent(sq.answer)) continue;
-          const subStatus = sq.done ? 'Completed' : 'Open';
-          sections.push(new Paragraph({
-            spacing: { before: 80, after: 40 },
-            indent: { left: 360 },
-            children: [
-              new TextRun({ text: `Sub-Question ${si + 1}: `, font: FONT, size: 18, bold: true, color: COLORS.dark }),
-              new TextRun({ text: sq.text || 'Untitled sub-question', font: FONT, size: 18, color: COLORS.dark }),
-              new TextRun({ text: `  [${subStatus}]`, font: FONT, size: 16, color: sq.done ? COLORS.accent : COLORS.light }),
-            ],
-          }));
-          const wroteSubAnswer = await appendRichContent(sections, sq.answer);
-          if (!wroteSubAnswer) {
-            sections.push(bodyText('No written answer yet.', { color: COLORS.light, italic: true }));
-          }
-        }
-      }
-      sections.push(spacer(100));
-    };
-
-    await renderQuestions('Due Diligence Questions', researchWorkspace.dueDiligenceItems);
-    await renderQuestions('Dislocation Questions', researchWorkspace.dislocationItems);
-  }
-
-  // ═══════════ RESEARCH TO-DO ═══════════
+  // ═══════════ REVENUE & GROWTH ═══════════
   {
     sections.push(pageBreakParagraph());
-    sections.push(heading('Research To-Do', HeadingLevel.HEADING_1));
-    const todos = (thesis?.todos || []).filter(t => t.text && t.text.trim());
-    if (todos.length > 0) {
-      todos.forEach(t => {
-        const prefix = t.done ? '[x] ' : '[ ] ';
-        sections.push(new Paragraph({
-          bullet: { level: 0 },
-          spacing: { after: 40 },
-          children: [new TextRun({
-            text: prefix + t.text,
-            font: FONT,
-            size: 19,
-            color: t.done ? COLORS.light : COLORS.dark,
-            strikeThrough: t.done,
-          })],
-        }));
-      });
-    } else {
-      sections.push(bodyText('No outstanding research items at this time.', { color: COLORS.light, italic: true }));
+    sections.push(sectionTitle('Revenue & Growth Profile'));
+
+    const revenueChart = findChart(chartImages, 'Revenue');
+    if (revenueChart) {
+      figureNum++;
+      renderChart(sections, revenueChart, figureNum, `${ticker} Quarterly Revenue`);
+    }
+
+    // Revenue & Growth text from thesis structure
+    const revenueText = researchWorkspace?.fundamentals?.revenueGrowth;
+    if (hasRichContent(revenueText)) {
+      sections.push(spacer(80));
+      await appendRichContent(sections, revenueText);
+    }
+  }
+
+  // ═══════════ PROFITABILITY ═══════════
+  {
+    sections.push(pageBreakParagraph());
+    sections.push(sectionTitle('Profitability Profile'));
+
+    const epsChart = findChart(chartImages, 'EPS');
+    const fcfChart = findChart(chartImages, 'Free Cash Flow', 'FCF');
+    const marginChart = findChart(chartImages, 'Operating Margin');
+
+    if (epsChart) {
+      figureNum++;
+      renderChart(sections, epsChart, figureNum, `${ticker} EPS (Diluted)`);
+    }
+
+    if (fcfChart) {
+      figureNum++;
+      renderChart(sections, fcfChart, figureNum, `${ticker} Free Cash Flow`);
+    }
+
+    if (marginChart) {
+      figureNum++;
+      renderChart(sections, marginChart, figureNum, `${ticker} Operating Margins`);
+    }
+
+    // Profitability text from thesis structure
+    const profitabilityText = researchWorkspace?.fundamentals?.profitability;
+    if (hasRichContent(profitabilityText)) {
+      sections.push(spacer(80));
+      await appendRichContent(sections, profitabilityText);
+    }
+  }
+
+  // ═══════════ CAPITAL RETURNS TO SHAREHOLDERS ═══════════
+  {
+    sections.push(pageBreakParagraph());
+    sections.push(sectionTitle('Capital Returns to Shareholders'));
+
+    const sharesChart = findChart(chartImages, 'Outstanding Shares', 'Buyback', 'Shares');
+    if (sharesChart) {
+      figureNum++;
+      renderChart(sections, sharesChart, figureNum, `${ticker} Outstanding Shares`);
+    }
+
+    // Capital Returns text
+    const capitalText = researchWorkspace?.fundamentals?.capitalReturn;
+    if (hasRichContent(capitalText)) {
+      sections.push(spacer(80));
+      await appendRichContent(sections, capitalText);
+    }
+  }
+
+  // ═══════════ MISC ═══════════
+  {
+    const miscText = researchWorkspace?.fundamentals?.misc;
+    if (hasRichContent(miscText)) {
+      sections.push(pageBreakParagraph());
+      sections.push(sectionTitle('Additional Notes'));
+      await appendRichContent(sections, miscText);
+    }
+  }
+
+  // ═══════════ DUE DILIGENCE QUESTIONS ═══════════
+  {
+    const ddItems = researchWorkspace.dueDiligenceItems || [];
+    const hasDD = normalizeQuestionItems(ddItems).some(item => item.text.trim() || hasRichContent(item.answer));
+    if (hasDD) {
+      sections.push(pageBreakParagraph());
+      await renderQuestions(sections, 'Due Diligence Questions', ddItems);
+    }
+  }
+
+  // ═══════════ DISLOCATION QUESTIONS ═══════════
+  {
+    const disItems = researchWorkspace.dislocationItems || [];
+    const hasDis = normalizeQuestionItems(disItems).some(item => item.text.trim() || hasRichContent(item.answer));
+    if (hasDis) {
+      sections.push(pageBreakParagraph());
+      await renderQuestions(sections, 'Dislocation Questions', disItems);
     }
   }
 
   // ═══════════ NEWS & UPDATES ═══════════
   {
-    sections.push(pageBreakParagraph());
-    sections.push(heading('Recent Developments', HeadingLevel.HEADING_1));
     const updates = (thesis?.newsUpdates || []).filter(u => u.title || u.body);
-
     if (updates.length > 0) {
-      // Show newest first
+      sections.push(pageBreakParagraph());
+      sections.push(sectionTitle('News & Recent Developments'));
+
       [...updates].reverse().forEach((entry, idx) => {
+        // Title line
         const titleParts = [];
-        if (entry.title) titleParts.push(new TextRun({ text: entry.title, font: FONT, size: 22, bold: true, color: COLORS.dark }));
-        if (entry.date) titleParts.push(new TextRun({ text: `  |  ${entry.date}`, font: FONT, size: 18, color: COLORS.light }));
+        if (entry.title) {
+          titleParts.push(new TextRun({ text: entry.title, font: FONT_SERIF, size: 22, bold: true, color: C.navy }));
+        }
+        if (entry.date) {
+          titleParts.push(new TextRun({ text: `  |  ${entry.date}`, font: FONT, size: 17, color: C.light }));
+        }
+        sections.push(new Paragraph({
+          spacing: { before: idx > 0 ? 280 : 160, after: 80 },
+          keepNext: true,
+          children: titleParts,
+        }));
 
-        // keepNext so title stays with body
-        sections.push(new Paragraph({ spacing: { before: idx > 0 ? 300 : 200, after: 80 }, keepNext: true, children: titleParts }));
-
+        // Body
         if (entry.body && entry.body.trim()) {
-          entry.body.split('\n').filter(l => l.trim()).forEach(line => sections.push(bodyText(line)));
+          entry.body.split('\n').filter(l => l.trim()).forEach(line => {
+            const p = bodyParagraph(line);
+            if (p) sections.push(p);
+          });
         }
 
+        // Impact on assumptions
         if (entry.impactOnAssumptions && entry.impactOnAssumptions.trim()) {
           sections.push(new Paragraph({
-            spacing: { before: 120, after: 40 },
+            spacing: { before: 100, after: 40 },
             keepNext: true,
-            children: [new TextRun({ text: 'Impact on Assumptions:', font: FONT, size: 18, bold: true, color: 'B45309' })],
+            children: [new TextRun({ text: 'Impact on Assumptions:', font: FONT, size: 18, bold: true, color: C.amber })],
           }));
-          entry.impactOnAssumptions.split('\n').filter(l => l.trim()).forEach(line =>
-            sections.push(bodyText(line, { italic: true, color: '92400E' }))
-          );
+          entry.impactOnAssumptions.split('\n').filter(l => l.trim()).forEach(line => {
+            sections.push(bodyText(line, { italic: true, color: '92400E' }));
+          });
         }
 
-        // Divider between entries
         if (idx < updates.length - 1) {
           sections.push(dividerLine());
         }
       });
-    } else {
-      sections.push(bodyText('No recent developments to report.', { color: COLORS.light, italic: true }));
+    }
+  }
+
+  // ═══════════ VALUATION CHARTS (PE Ratio + FCF Yield) ═══════════
+  {
+    const peChart = findChart(chartImages, 'PE Ratio');
+    const fcfYieldChart = findChart(chartImages, 'FCF Yield');
+    if (peChart || fcfYieldChart) {
+      sections.push(pageBreakParagraph());
+      sections.push(sectionTitle('Valuation'));
+
+      if (peChart) {
+        figureNum++;
+        renderChart(sections, peChart, figureNum, `${ticker} PE Ratio`);
+      }
+      if (fcfYieldChart) {
+        figureNum++;
+        renderChart(sections, fcfYieldChart, figureNum, `${ticker} FCF Yield`);
+      }
     }
   }
 
   // ═══════════ VALUATION MODEL ═══════════
   if (model) {
     sections.push(pageBreakParagraph());
-    sections.push(heading('EPS Based Valuation Model', HeadingLevel.HEADING_1));
+    sections.push(sectionTitle('EPS-Based Valuation Model'));
 
     const inp = model.inputs || {};
     const has = (v) => v !== '' && v !== undefined && v !== null;
 
-    // --- Helper: clean academic-style cell (no background, no vertical borders) ---
-    const TB_NONE = { style: BorderStyle.NONE, size: 0, color: COLORS.white };
-    const TB_LINE = { style: BorderStyle.SINGLE, size: 1, color: '000000' };
-
-    function cleanCell(text, opts = {}) {
-      const borders = {
-        top: opts.borderTop ? TB_LINE : TB_NONE,
-        bottom: opts.borderBottom ? TB_LINE : TB_NONE,
-        left: TB_NONE,
-        right: TB_NONE,
-      };
-      return new TableCell({
-        width: opts.width ? { size: opts.width, type: WidthType.PERCENTAGE } : undefined,
-        borders,
-        margins: { top: 30, bottom: 30, left: 60, right: 60 },
-        children: [new Paragraph({
-          alignment: opts.align || AlignmentType.LEFT,
-          children: [new TextRun({
-            text: String(text ?? ''),
-            font: FONT,
-            size: opts.size || 19,
-            bold: opts.bold,
-            color: opts.color || COLORS.dark,
-          })],
-        })],
-      });
-    }
-
-    // ── Top inputs table 1: Ticker | Share Price | Current Dividend | Target P/E Multiple ──
+    // Input parameters table 1
     const inputRow1Header = ['Ticker', 'Share Price', 'Current Dividend', 'Target P/E Multiple'];
     const inputRow1Values = [
       ticker,
@@ -671,27 +872,27 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       has(inp.targetPE) ? fmt(Number(inp.targetPE), 2) : '—',
     ];
 
-    sections.push(spacer(100));
+    sections.push(spacer(80));
     sections.push(new Table({
       width: { size: 80, type: WidthType.PERCENTAGE },
       alignment: AlignmentType.CENTER,
       rows: [
         new TableRow({
           children: inputRow1Header.map(h =>
-            cleanCell(h, { bold: true, align: AlignmentType.CENTER, borderTop: true, borderBottom: true })
+            makeCell(h, { bold: true, align: AlignmentType.CENTER, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 })
           ),
         }),
         new TableRow({
           children: inputRow1Values.map(v =>
-            cleanCell(v, { align: AlignmentType.CENTER, borderBottom: true })
+            makeCell(v, { align: AlignmentType.CENTER, borderBottom: true, size: 17 })
           ),
         }),
       ],
     }));
 
-    sections.push(spacer(200));
+    sections.push(spacer(160));
 
-    // ── Top inputs table 2: Revenue Growth | COGS Growth | OpEx Growth | Net Share Dilution | Dividend Growth % | Tax Rate ──
+    // Input parameters table 2
     const inputRow2Header = ['Revenue Growth', 'COGS Growth', 'OpEx Growth', 'Net Share Dilution', 'Dividend Growth %', 'Tax Rate'];
     const inputRow2Values = [
       has(inp.revenueGrowth) ? fmtPct(Number(inp.revenueGrowth), 2) : '—',
@@ -707,26 +908,25 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       rows: [
         new TableRow({
           children: inputRow2Header.map(h =>
-            cleanCell(h, { bold: true, align: AlignmentType.CENTER, borderTop: true, borderBottom: true })
+            makeCell(h, { bold: true, align: AlignmentType.CENTER, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 16 })
           ),
         }),
         new TableRow({
           children: inputRow2Values.map(v =>
-            cleanCell(v, { align: AlignmentType.CENTER, borderBottom: true })
+            makeCell(v, { align: AlignmentType.CENTER, borderBottom: true, size: 17 })
           ),
         }),
       ],
     }));
 
-    sections.push(spacer(300));
+    sections.push(spacer(240));
 
-    // ── Main projection table ──
+    // Projection table
     if (model.computed) {
       const yearLabels = model.computed.yearLabels || [];
-      const labelWidth = 30;
+      const labelWidth = 28;
       const yearWidth = (100 - labelWidth) / yearLabels.length;
 
-      // Projection rows with grouping info for separator lines — matches the on-screen model exactly
       const projRows = [
         { label: 'Revenue (bil)', data: model.computed.revenue, fmt: v => `$${fmt(v, 2)}`, bold: true },
         { label: 'Cost of Revenue', data: model.computed.cogs, fmt: v => `$${fmt(v, 2)}` },
@@ -747,10 +947,9 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
         { label: 'Extra Shares w/ Reinvested Div', data: model.computed.divShares, fmt: v => fmt(v, 4) },
       ];
 
-      // Build header row
       const headerCells = [
-        cleanCell('Factors', { bold: true, width: labelWidth, borderTop: true, borderBottom: true }),
-        ...yearLabels.map(y => cleanCell(String(y), { bold: true, align: AlignmentType.RIGHT, width: yearWidth, borderTop: true, borderBottom: true })),
+        makeCell('Factors', { bold: true, width: labelWidth, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy }),
+        ...yearLabels.map(y => makeCell(String(y), { bold: true, align: AlignmentType.RIGHT, width: yearWidth, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy })),
       ];
 
       const tableRows = [new TableRow({ children: headerCells })];
@@ -758,26 +957,24 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       for (let ri = 0; ri < projRows.length; ri++) {
         const row = projRows[ri];
         if (row.sep) continue;
-
-        // Check if previous row was a separator
         const prevIsSep = ri > 0 && projRows[ri - 1]?.sep;
 
         const cells = [
-          cleanCell(row.label, { bold: row.bold, width: labelWidth, borderTop: prevIsSep }),
-          ...(row.data || []).map(v => cleanCell(row.fmt(v), { align: AlignmentType.RIGHT, bold: row.bold, width: yearWidth, borderTop: prevIsSep })),
+          makeCell(row.label, { bold: row.bold, width: labelWidth, borderTop: prevIsSep, size: 17 }),
+          ...(row.data || []).map(v => makeCell(row.fmt(v), { align: AlignmentType.RIGHT, bold: row.bold, width: yearWidth, borderTop: prevIsSep, size: 17 })),
         ];
         tableRows.push(new TableRow({ children: cells }));
       }
 
-      // ── Total CAGR footer row ──
+      // Total CAGR
       const totalCAGRVal = model.computed.totalCAGR != null ? fmtPct(model.computed.totalCAGR, 2) : '—';
       const cagrCells = [
-        cleanCell('Total CAGR', { bold: true, width: labelWidth, borderTop: true, borderBottom: true }),
+        makeCell('Total CAGR', { bold: true, width: labelWidth, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy }),
       ];
       for (let i = 0; i < yearLabels.length - 1; i++) {
-        cagrCells.push(cleanCell('', { width: yearWidth, borderTop: true, borderBottom: true }));
+        cagrCells.push(makeCell('', { width: yearWidth, borderTop: true, borderBottom: true, heavyBorder: true }));
       }
-      cagrCells.push(cleanCell(totalCAGRVal, { bold: true, align: AlignmentType.RIGHT, width: yearWidth, borderTop: true, borderBottom: true }));
+      cagrCells.push(makeCell(totalCAGRVal, { bold: true, align: AlignmentType.RIGHT, width: yearWidth, borderTop: true, borderBottom: true, heavyBorder: true, color: C.accent }));
       tableRows.push(new TableRow({ children: cagrCells }));
 
       sections.push(new Table({
@@ -785,37 +982,38 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
         rows: tableRows,
       }));
 
-      // Caption
+      // Table caption
       sections.push(new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { before: 120, after: 80 },
+        spacing: { before: 100, after: 60 },
         children: [new TextRun({
           text: `Table 1: ${ticker} 5-Year Valuation Forecast (revenue and income in billions).`,
           font: FONT,
-          size: 18,
+          size: 17,
           italics: true,
-          color: COLORS.mid,
+          color: C.mid,
         })],
       }));
 
-      sections.push(spacer(300));
+      sections.push(spacer(200));
 
-      // ── Model Output Summary ──
+      // Model output summary
       sections.push(new Table({
         width: { size: 80, type: WidthType.PERCENTAGE },
+        alignment: AlignmentType.CENTER,
         rows: [
           new TableRow({
             children: ['', 'Expected CAGR', 'CAGR w/ Dividends', '1Y Price Target', '5Y Target Price'].map(h =>
-              cleanCell(h, { bold: true, align: h ? AlignmentType.CENTER : AlignmentType.LEFT, borderTop: true, borderBottom: true, size: 17 })
+              makeCell(h, { bold: true, align: h ? AlignmentType.CENTER : AlignmentType.LEFT, borderTop: true, borderBottom: true, heavyBorder: true, size: 16, color: C.navy })
             ),
           }),
           new TableRow({
             children: [
-              cleanCell('', { borderBottom: true }),
-              cleanCell(fmtPct(model.computed.totalCAGRNoDivs, 2), { align: AlignmentType.CENTER, bold: true, borderBottom: true }),
-              cleanCell(fmtPct(model.computed.totalCAGR, 2), { align: AlignmentType.CENTER, bold: true, borderBottom: true }),
-              cleanCell(`$${fmt(model.computed.priceTarget, 2)}`, { align: AlignmentType.CENTER, bold: true, borderBottom: true }),
-              cleanCell(`$${fmt(model.computed.targetPrice5, 2)}`, { align: AlignmentType.CENTER, bold: true, borderBottom: true }),
+              makeCell('', { borderBottom: true, heavyBorder: true }),
+              makeCell(fmtPct(model.computed.totalCAGRNoDivs, 2), { align: AlignmentType.CENTER, bold: true, borderBottom: true, heavyBorder: true, color: C.accent }),
+              makeCell(fmtPct(model.computed.totalCAGR, 2), { align: AlignmentType.CENTER, bold: true, borderBottom: true, heavyBorder: true, color: C.accent }),
+              makeCell(`$${fmt(model.computed.priceTarget, 2)}`, { align: AlignmentType.CENTER, bold: true, borderBottom: true, heavyBorder: true }),
+              makeCell(`$${fmt(model.computed.targetPrice5, 2)}`, { align: AlignmentType.CENTER, bold: true, borderBottom: true, heavyBorder: true }),
             ],
           }),
         ],
@@ -824,12 +1022,29 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
   }
 
   // ═══════════ DISCLAIMER ═══════════
-  sections.push(spacer(600));
-  sections.push(dividerLine());
-  sections.push(bodyText('This report was generated for internal research purposes only. It does not constitute investment advice.', { color: COLORS.light, italic: true }));
-  sections.push(bodyText(`Generated on ${dateStr}`, { color: COLORS.light, italic: true }));
+  {
+    sections.push(spacer(400));
+    sections.push(new Paragraph({
+      spacing: { before: 0, after: 0 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: C.navy } },
+      children: [],
+    }));
+    sections.push(spacer(100));
 
-  // Build document
+    const disclaimerText = [
+      'This report was prepared by B.D. Sterling Capital Management for internal research purposes only and does not constitute investment advice, a solicitation, or an offer to buy or sell any securities.',
+      'The information contained herein is based on sources believed to be reliable but is not guaranteed as to its accuracy or completeness. Past performance is not indicative of future results. All investments involve risk, including the possible loss of principal.',
+      `Report generated on ${dateStr}.`,
+    ];
+    disclaimerText.forEach(line => {
+      sections.push(new Paragraph({
+        spacing: { after: 60, line: 240 },
+        children: [new TextRun({ text: line, font: FONT, size: 15, color: C.light, italics: true })],
+      }));
+    });
+  }
+
+  // ═══════════ BUILD DOCUMENT ═══════════
   const doc = new Document({
     styles: {
       default: {
@@ -839,7 +1054,7 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
     sections: [{
       properties: {
         page: {
-          margin: { top: 1200, bottom: 1200, left: 1200, right: 1200 },
+          margin: { top: 1000, bottom: 1000, left: 1100, right: 1100 },
         },
       },
       children: sections,
@@ -847,6 +1062,6 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
   });
 
   const blob = await Packer.toBlob(doc);
-  const filename = `${ticker}_${isResearchWorkspace ? 'Research_Workspace_Report' : 'Research_Report'}_${now.toISOString().slice(0, 10)}.docx`;
+  const filename = `${ticker}_Equity_Research_Report_${now.toISOString().slice(0, 10)}.docx`;
   saveAs(blob, filename);
 }
