@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useCache } from '@/lib/CacheContext';
 import { formatMoneyPrecise, formatPct, formatLargeNumber } from '@/lib/formatters';
-import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List } from 'lucide-react';
+import { Plus, X, ArrowRight, ArrowLeft, Eye, FlaskConical, TrendingUp, TrendingDown, Square, CheckSquare, ChevronDown, Pencil, Trash2, Check, List, ClipboardList } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -19,6 +19,14 @@ function autoExpand(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
+}
+
+function normalizeQuestionItems(items) {
+  return (items || []).map(item => (
+    typeof item === 'string'
+      ? { text: item, done: false, answer: '' }
+      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
+  ));
 }
 
 const DIP_PERIODS = [
@@ -246,6 +254,83 @@ const BOX_STYLES = {
   gray:    { bg: 'bg-gray-50', border: 'border-gray-200', ring: 'focus:ring-gray-200 focus:border-gray-300', label: 'text-gray-600' },
 };
 
+/* ── Due Diligence Checklist ──────────────────────────────────── */
+function DueDiligenceChecklist({ items, onUpdate }) {
+  const [inputVal, setInputVal] = useState('');
+
+  const addItem = () => {
+    const text = inputVal.trim();
+    if (!text) return;
+    onUpdate([...items, { text, done: false }]);
+    setInputVal('');
+  };
+
+  const toggleItem = (idx) => {
+    const updated = items.map((item, i) => i === idx ? { ...item, done: !item.done } : item);
+    onUpdate(updated);
+  };
+
+  const removeItem = (idx) => {
+    onUpdate(items.filter((_, i) => i !== idx));
+  };
+
+  const updateText = (idx, text) => {
+    const updated = items.map((item, i) => i === idx ? { ...item, text } : item);
+    onUpdate(updated);
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-1.5">
+        <ClipboardList size={12} />
+        Due Diligence Questions
+      </label>
+      <div className="mt-2 space-y-1.5">
+        {items.map((item, idx) => (
+          <div key={idx} className="flex items-start gap-2 group">
+            <button
+              onClick={() => toggleItem(idx)}
+              className="mt-0.5 flex-shrink-0 text-blue-500 hover:text-blue-600 transition-colors"
+            >
+              {item.done ? <CheckSquare size={16} /> : <Square size={16} />}
+            </button>
+            <input
+              defaultValue={item.text}
+              onBlur={(e) => updateText(idx, e.target.value)}
+              className={`flex-1 text-sm bg-transparent border-none outline-none py-0.5 ${
+                item.done ? 'line-through text-gray-400' : 'text-gray-700'
+              }`}
+            />
+            <button
+              onClick={() => removeItem(idx)}
+              className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0 mt-0.5"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); addItem(); }}
+        className="flex items-center gap-2 mt-2"
+      >
+        <input
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          placeholder="Add a due diligence question..."
+          className="flex-1 text-sm text-gray-700 bg-blue-50/50 border border-blue-200/60 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition-all"
+        />
+        <button
+          type="submit"
+          className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors"
+        >
+          <Plus size={14} />
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /* ── Dislocation Checklist ────────────────────────────────────── */
 function DislocationChecklist({ items, onUpdate }) {
   const [inputVal, setInputVal] = useState('');
@@ -326,6 +411,7 @@ function DislocationChecklist({ items, onUpdate }) {
 /* ── Stock Card ───────────────────────────────────────────────── */
 function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResearch }) {
   const isResearching = stock.stage === 'researching';
+  const isInResearch = stock.stage === 'research';
   const fundamentals = stock.fundamentals || {};
   const dislocationItems = stock.dislocationItems || [];
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -366,6 +452,11 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
             {isResearching && (
               <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
                 RESEARCHING
+              </span>
+            )}
+            {isInResearch && (
+              <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                IN RESEARCH
               </span>
             )}
           </div>
@@ -459,6 +550,12 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
             </div>
           </div>
 
+          {/* Due Diligence Questions — checklist */}
+          <DueDiligenceChecklist
+            items={stock.dueDiligenceItems || []}
+            onUpdate={(items) => onUpdateResearch(stock.ticker, 'dueDiligenceItems', items)}
+          />
+
           {/* Dislocation Questions — checklist */}
           <DislocationChecklist
             items={dislocationItems}
@@ -476,12 +573,27 @@ function StockCard({ stock, quote, onRemove, onMove, onUpdateNote, onUpdateResea
           >
             Move to Researching <ArrowRight size={13} />
           </button>
+        ) : stock.stage === 'researching' ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => onMove(stock.ticker, 'watching')}
+              className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <ArrowLeft size={13} /> Back to Watching
+            </button>
+            <button
+              onClick={() => onMove(stock.ticker, 'research')}
+              className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Move to Research <ArrowRight size={13} />
+            </button>
+          </div>
         ) : (
           <button
-            onClick={() => onMove(stock.ticker, 'watching')}
-            className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+            onClick={() => onMove(stock.ticker, 'researching')}
+            className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
           >
-            <ArrowLeft size={13} /> Back to Watching
+            <ArrowLeft size={13} /> Back to Researching
           </button>
         )}
       </div>
@@ -731,13 +843,21 @@ export default function WatchlistPage() {
   }, [cache]);
 
   useEffect(() => {
-    loadData().then(data => {
-      if (data) {
-        // Collect all tickers across all watchlists for quotes
-        const allStocks = (data.watchlists || []).flatMap(wl => wl.stocks || []);
-        if (allStocks.length > 0) fetchQuotes(allStocks);
-      }
-    });
+    let cancelled = false;
+
+    async function syncWatchlist() {
+      const data = await loadData();
+      if (!data || cancelled) return;
+
+      const allStocks = (data.watchlists || []).flatMap(wl => wl.stocks || []);
+      if (allStocks.length > 0) fetchQuotes(allStocks);
+    }
+
+    syncWatchlist();
+
+    return () => {
+      cancelled = true;
+    };
   }, [loadData, fetchQuotes]);
 
   // ── Watchlist management ──
@@ -835,9 +955,44 @@ export default function WatchlistPage() {
   };
 
   const moveStock = async (ticker, newStage) => {
-    await saveStocks(stocks.map(s =>
+    const stock = stocks.find(s => s.ticker === ticker);
+    const updatedStocks = stocks.map(s =>
       s.ticker === ticker ? { ...s, stage: newStage } : s
-    ));
+    );
+
+    await saveStocks(updatedStocks);
+
+    if (newStage !== 'research' || !stock) return;
+
+    try {
+      const thesisRes = await fetch(`/api/thesis/${ticker}`);
+      const thesis = await thesisRes.json();
+      const researchWorkspace = {
+        note: stock.note || '',
+        fundamentals: {
+          revenueGrowth: stock.fundamentals?.revenueGrowth || '',
+          profitability: stock.fundamentals?.profitability || '',
+          capitalReturn: stock.fundamentals?.capitalReturn || '',
+          misc: stock.fundamentals?.misc || '',
+        },
+        dueDiligenceItems: normalizeQuestionItems(stock.dueDiligenceItems || []),
+        dislocationItems: normalizeQuestionItems(stock.dislocationItems || []),
+      };
+
+      const updatedThesis = {
+        ...thesis,
+        underwriting: {
+          ...(thesis.underwriting || {}),
+          researchWorkspace,
+        },
+      };
+
+      await fetch(`/api/thesis/${ticker}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedThesis),
+      });
+    } catch {}
   };
 
   const updateNote = async (ticker, note) => {
@@ -854,6 +1009,7 @@ export default function WatchlistPage() {
 
   const watching = stocks.filter(s => s.stage === 'watching');
   const researching = stocks.filter(s => s.stage === 'researching');
+  const research = stocks.filter(s => s.stage === 'research');
 
   if (loading) {
     return (
@@ -880,7 +1036,8 @@ export default function WatchlistPage() {
               <h1 className="text-2xl font-bold text-gray-900">Watchlist</h1>
               <p className="text-sm text-gray-500 mt-1">
                 {stocks.length} stock{stocks.length !== 1 ? 's' : ''} tracked
-                {researching.length > 0 && ` · ${researching.length} in research`}
+                {researching.length > 0 && ` · ${researching.length} currently researching`}
+                {research.length > 0 && ` · ${research.length} in research`}
               </p>
             </div>
             <WatchlistSelector
@@ -965,6 +1122,31 @@ export default function WatchlistPage() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {researching.map(stock => (
+                <StockCard
+                  key={stock.ticker}
+                  stock={stock}
+                  quote={quotes[stock.ticker]}
+                  onRemove={removeStock}
+                  onMove={moveStock}
+                  onUpdateNote={updateNote}
+                  onUpdateResearch={updateResearch}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {research.length > 0 && (
+          <section className="mt-12">
+            <div className="flex items-center gap-2 mb-4">
+              <ClipboardList size={18} className="text-blue-600" />
+              <h2 className="text-lg font-bold text-gray-800">Research</h2>
+              <span className="text-xs text-gray-400 font-medium bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">
+                {research.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {research.map(stock => (
                 <StockCard
                   key={stock.ticker}
                   stock={stock}

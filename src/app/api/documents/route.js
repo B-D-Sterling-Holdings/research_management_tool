@@ -1,0 +1,94 @@
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
+
+const BUCKET = 'documents';
+
+export async function GET(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const category = searchParams.get('category');
+
+    let query = supabase.from('documents').select('*').order('uploaded_at', { ascending: false });
+    if (category) {
+      query = query.eq('category', category);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({ documents: data || [] });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
+export async function POST(request) {
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    const title = formData.get('title')?.toString() || '';
+    const category = formData.get('category')?.toString() || 'other';
+    const ticker = formData.get('ticker')?.toString().toUpperCase() || '';
+    const notes = formData.get('notes')?.toString() || '';
+
+    if (!file) {
+      return NextResponse.json({ error: 'file is required' }, { status: 400 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const path = `${category}/${Date.now()}_${file.name}`;
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, buffer, {
+        contentType: file.type,
+        upsert: false,
+      });
+
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(uploadData.path);
+
+    const { data: doc, error: dbError } = await supabase.from('documents').insert({
+      title: title || file.name,
+      category,
+      ticker,
+      notes,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,
+      storage_path: uploadData.path,
+      url: urlData.publicUrl,
+    }).select().single();
+
+    if (dbError) throw new Error(dbError.message);
+
+    return NextResponse.json({ success: true, document: doc });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    // Get the document to find storage path
+    const { data: doc } = await supabase.from('documents').select('storage_path').eq('id', id).single();
+
+    if (doc?.storage_path) {
+      await supabase.storage.from(BUCKET).remove([doc.storage_path]);
+    }
+
+    const { error } = await supabase.from('documents').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

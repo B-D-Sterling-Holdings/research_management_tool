@@ -37,6 +37,45 @@ function bodyText(text, opts = {}) {
   });
 }
 
+function richContentToLines(value) {
+  if (!value) return [];
+  if (typeof value === 'string') {
+    return value.split('\n').map(line => line.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter(block => block?.type === 'text' && typeof block.value === 'string')
+      .flatMap(block => block.value.split('\n'))
+      .map(line => line.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function hasRichContent(value) {
+  const blocks = normalizeRichBlocks(value);
+  return blocks.some(block => {
+    if (block?.type === 'image' && block.url) return true;
+    if (block?.type === 'text' && typeof block.value === 'string' && block.value.trim()) return true;
+    return false;
+  });
+}
+
+function normalizeRichBlocks(value) {
+  if (!value) return [];
+  if (typeof value === 'string') return [{ type: 'text', value }];
+  if (Array.isArray(value)) return value;
+  return [];
+}
+
+function normalizeQuestionItems(items) {
+  return (items || []).map(item => (
+    typeof item === 'string'
+      ? { text: item, done: false, answer: '' }
+      : { text: item?.text || '', done: !!item?.done, answer: item?.answer ?? '' }
+  ));
+}
+
 function spacer(size = 200) {
   return new Paragraph({ spacing: { before: size, after: 0 }, children: [] });
 }
@@ -164,9 +203,68 @@ function chartImageRun(dataUrl, canvasWidth, canvasHeight) {
   });
 }
 
-export async function exportReport({ ticker, thesis, model, tickerData, liveQuote, displayPrice }) {
+async function remoteImageRun(url, opts = {}) {
+  if (!url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    const type = contentType.includes('png')
+      ? 'png'
+      : contentType.includes('gif')
+        ? 'gif'
+        : contentType.includes('bmp')
+          ? 'bmp'
+          : 'jpg';
+    const buffer = new Uint8Array(await res.arrayBuffer());
+    return new ImageRun({
+      data: buffer,
+      transformation: {
+        width: opts.width || 520,
+        height: opts.height || 320,
+      },
+      type,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function appendRichContent(sections, value, opts = {}) {
+  const blocks = normalizeRichBlocks(value);
+  let wroteAny = false;
+
+  for (const block of blocks) {
+    if (block?.type === 'image' && block.url) {
+      const imageRun = await remoteImageRun(block.url, { width: 520, height: 320 });
+      if (imageRun) {
+        sections.push(new Paragraph({
+          spacing: { before: 60, after: 80 },
+          children: [imageRun],
+        }));
+        if (block.name) {
+          sections.push(bodyText(block.name, { color: COLORS.light, italic: true }));
+        }
+        wroteAny = true;
+      }
+      continue;
+    }
+
+    if (block?.type === 'text' && typeof block.value === 'string') {
+      const lines = block.value.split('\n').map(line => line.trim()).filter(Boolean);
+      lines.forEach(line => sections.push(bodyText(line, opts.textOpts || {})));
+      if (lines.length > 0) wroteAny = true;
+    }
+  }
+
+  return wroteAny;
+}
+
+export async function exportReport({ ticker, thesis, model, tickerData, liveQuote, displayPrice, reportType = 'position_review' }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const isResearchWorkspace = reportType === 'research_workspace';
+  const researchWorkspace = thesis?.underwriting?.researchWorkspace || {};
 
   // Capture chart images from the DOM
   const chartImages = captureCharts();
@@ -184,7 +282,7 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 40 },
-      children: [new TextRun({ text: 'Equity Research Update', font: FONT, size: 28, color: COLORS.mid })],
+      children: [new TextRun({ text: isResearchWorkspace ? 'Research Workspace Report' : 'Equity Research Update', font: FONT, size: 28, color: COLORS.mid })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -357,9 +455,12 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
     }
 
     // Key assumptions / The Story
-    if (thesis.assumptions && thesis.assumptions.trim()) {
+    if (normalizeRichBlocks(thesis.assumptions).length > 0) {
       sections.push(heading('The Story', HeadingLevel.HEADING_2));
-      thesis.assumptions.split('\n').filter(l => l.trim()).forEach(line => sections.push(bodyText(line)));
+      const wroteStory = await appendRichContent(sections, thesis.assumptions);
+      if (!wroteStory) {
+        sections.push(bodyText('No written story yet.', { color: COLORS.light, italic: true }));
+      }
       sections.push(spacer(100));
     }
 
@@ -369,6 +470,65 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       thesis.valuation.split('\n').filter(l => l.trim()).forEach(line => sections.push(bodyText(line)));
       sections.push(spacer(100));
     }
+  }
+
+  if (isResearchWorkspace && thesis) {
+    sections.push(pageBreakParagraph());
+    sections.push(heading('Thesis Structure', HeadingLevel.HEADING_1));
+
+    if (normalizeRichBlocks(researchWorkspace.note).length > 0) {
+      sections.push(heading('Why This Name Is Here', HeadingLevel.HEADING_2));
+      const wroteNote = await appendRichContent(sections, researchWorkspace.note);
+      if (!wroteNote) {
+        sections.push(bodyText('No note yet.', { color: COLORS.light, italic: true }));
+      }
+      sections.push(spacer(100));
+    }
+
+    const fundamentals = researchWorkspace.fundamentals || {};
+    const thesisStructureSections = [
+      ['Revenue and Growth', fundamentals.revenueGrowth],
+      ['Profitability', fundamentals.profitability],
+      ['Capital Returned to Shareholders', fundamentals.capitalReturn],
+      ['Misc', fundamentals.misc],
+    ].filter(([, value]) => hasRichContent(value));
+
+    if (thesisStructureSections.length > 0) {
+      sections.push(heading('Fundamental Sections', HeadingLevel.HEADING_2));
+      for (const [title, value] of thesisStructureSections) {
+        sections.push(heading(title, HeadingLevel.HEADING_3));
+        const wroteSection = await appendRichContent(sections, value);
+        if (!wroteSection) {
+          sections.push(bodyText('No notes yet.', { color: COLORS.light, italic: true }));
+        }
+        sections.push(spacer(60));
+      }
+    }
+
+    const renderQuestions = async (title, items) => {
+      const normalized = normalizeQuestionItems(items).filter(item => item.text.trim() || hasRichContent(item.answer));
+      if (normalized.length === 0) return;
+      sections.push(heading(title, HeadingLevel.HEADING_2));
+      for (const [idx, item] of normalized.entries()) {
+        const status = item.done ? 'Completed' : 'Open';
+        sections.push(new Paragraph({
+          spacing: { before: 120, after: 60 },
+          children: [
+            new TextRun({ text: `Question ${idx + 1}: `, font: FONT, size: 20, bold: true, color: COLORS.dark }),
+            new TextRun({ text: item.text || 'Untitled question', font: FONT, size: 20, color: COLORS.dark }),
+            new TextRun({ text: `  [${status}]`, font: FONT, size: 18, color: item.done ? COLORS.accent : COLORS.light }),
+          ],
+        }));
+        const wroteAnswer = await appendRichContent(sections, item.answer);
+        if (!wroteAnswer) {
+          sections.push(bodyText('No written answer yet.', { color: COLORS.light, italic: true }));
+        }
+      }
+      sections.push(spacer(100));
+    };
+
+    await renderQuestions('Due Diligence Questions', researchWorkspace.dueDiligenceItems);
+    await renderQuestions('Dislocation Questions', researchWorkspace.dislocationItems);
   }
 
   // ═══════════ RESEARCH TO-DO ═══════════
@@ -658,6 +818,6 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
   });
 
   const blob = await Packer.toBlob(doc);
-  const filename = `${ticker}_Research_Report_${now.toISOString().slice(0, 10)}.docx`;
+  const filename = `${ticker}_${isResearchWorkspace ? 'Research_Workspace_Report' : 'Research_Report'}_${now.toISOString().slice(0, 10)}.docx`;
   saveAs(blob, filename);
 }

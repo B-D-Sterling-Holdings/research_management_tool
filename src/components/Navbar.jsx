@@ -4,13 +4,15 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Briefcase, Search, Eye, LogOut } from 'lucide-react';
+import { Briefcase, Search, Eye, FolderOpen, LogOut, ClipboardList } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 
 const navLinks = [
   { href: '/holdings', label: 'Our Holdings', icon: Briefcase },
   { href: '/watchlist', label: 'Watchlist', icon: Eye },
   { href: '/research', label: 'Research', icon: Search },
+  { href: '/position-review', label: 'Position Review', icon: ClipboardList },
+  { href: '/documents', label: 'Documents', icon: FolderOpen },
 ];
 
 export default function Navbar() {
