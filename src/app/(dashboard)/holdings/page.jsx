@@ -14,6 +14,8 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearSca
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
+const BENCHMARK_TICKER = '^GSPC';
+
 export default function HoldingsPage() {
   const cache = useCache();
   const searchParams = useSearchParams();
@@ -75,7 +77,7 @@ export default function HoldingsPage() {
     if (!holdings?.length) return;
     setQuotesLoading(true);
     try {
-      const tickers = holdings.map(h => h.ticker).join(',');
+      const tickers = Array.from(new Set([...holdings.map(h => h.ticker), BENCHMARK_TICKER])).join(',');
       const res = await fetch(`/api/quotes?tickers=${tickers}`);
       const data = await res.json();
       if (data.quotes) {
@@ -130,8 +132,10 @@ export default function HoldingsPage() {
 
   useEffect(() => {
     loadPortfolio().then(data => {
-      // Only fetch quotes if not already cached
-      if (data?.holdings?.length && !cache.get('holdings_quotes')) {
+      const cachedQuotes = cache.get('holdings_quotes');
+      const missingBenchmarkQuote = !cachedQuotes?.[BENCHMARK_TICKER];
+      // Refresh quotes when cache is missing or predates the benchmark quote.
+      if (data?.holdings?.length && (!cachedQuotes || missingBenchmarkQuote)) {
         loadQuotes(data.holdings);
       }
     });
@@ -331,12 +335,14 @@ export default function HoldingsPage() {
   const positions = holdings.map(h => {
     const quote = quotes[h.ticker];
     const price = quote?.price || h.cost_basis;
+    const dayChange = quote?.dayChange || 0;
     const value = h.shares * price;
     const cost = h.shares * h.cost_basis;
     const unrealizedPnl = value - cost;
     const unrealizedPnlPct = cost > 0 ? (unrealizedPnl / cost) * 100 : 0;
     const dayChangePct = quote?.dayChangePct || 0;
-    return { ticker: h.ticker, shares: h.shares, costBasis: h.cost_basis, price, value, cost, unrealizedPnl, unrealizedPnlPct, dayChangePct };
+    const dailyPnl = h.shares * dayChange;
+    return { ticker: h.ticker, shares: h.shares, costBasis: h.cost_basis, price, value, cost, unrealizedPnl, unrealizedPnlPct, dayChange, dayChangePct, dailyPnl };
   });
 
   const quotesLoaded = !quotesLoading && Object.keys(quotes).length > 0;
@@ -345,6 +351,13 @@ export default function HoldingsPage() {
   const totalAum = nav + cashVal;
   const totalCost = positions.reduce((s, p) => s + p.cost, 0);
   const totalUnrealizedPnl = nav - totalCost;
+  const totalDailyChange = positions.reduce((s, p) => s + p.dailyPnl, 0);
+  const previousTotalAum = totalAum - totalDailyChange;
+  const totalDailyChangePct = previousTotalAum > 0 ? (totalDailyChange / previousTotalAum) * 100 : 0;
+  const benchmarkDayChangePct = quotes[BENCHMARK_TICKER]?.dayChangePct;
+  const dailyMoveSub = quotesLoaded
+    ? `${formatPct(totalDailyChangePct, 2)} vs S&P's ${benchmarkDayChangePct == null ? '—' : formatPct(benchmarkDayChangePct, 2)}`
+    : undefined;
 
   const treemapPositions = positions.map(p => ({
     ticker: p.ticker, value: p.value, pnlPct: p.unrealizedPnlPct, dayChangePct: p.dayChangePct,
@@ -378,9 +391,19 @@ export default function HoldingsPage() {
       {activeSubTab === 'summary' && (
         <>
           {/* Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
             <StatCard label="Total AUM" value={quotesLoaded ? formatMoney(totalAum) : <div className="h-8 w-28 rounded-lg skeleton" />} />
             <StatCard label="Positions" value={holdings.length} />
+            <StatCard
+              label="Today's Move"
+              sub={dailyMoveSub}
+              variant={quotesLoaded ? (totalDailyChange >= 0 ? 'positive' : 'negative') : 'default'}
+              value={quotesLoaded ? (
+                <>
+                  {totalDailyChange >= 0 ? '+' : ''}{formatMoney(totalDailyChange)}
+                </>
+              ) : <div className="h-8 w-28 rounded-lg skeleton" />}
+            />
             <StatCard
               label="Unrealized P&L"
               variant={quotesLoaded ? (totalUnrealizedPnl >= 0 ? 'positive' : 'negative') : 'default'}
@@ -470,7 +493,7 @@ export default function HoldingsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      {['Symbol', 'Qty', 'Avg Cost', 'Price', 'Value', 'Unreal P&L', '% AUM', ''].map((col, i) => (
+                      {['Symbol', '% AUM', 'Avg Cost', 'Qty', 'Price', 'Mkt Value', 'Daily P&L', 'Unreal P&L', ''].map((col, i) => (
                         <th key={i} className={`py-3 px-3 text-xs text-gray-400 uppercase tracking-wider font-semibold ${i === 0 ? 'text-left' : 'text-right'}`}>
                           {col}
                         </th>
@@ -480,6 +503,7 @@ export default function HoldingsPage() {
                   <tbody>
                     {filtered.map(p => {
                       const weight = totalAum > 0 ? (p.value / totalAum) * 100 : 0;
+                      const dayIsPos = p.dailyPnl >= 0;
                       const pnlIsPos = p.unrealizedPnl >= 0;
                       return (
                         <tr key={p.ticker} className="border-b border-gray-50 hover:bg-emerald-50/30 transition-colors duration-150">
@@ -488,8 +512,9 @@ export default function HoldingsPage() {
                               {p.ticker}
                             </span>
                           </td>
-                          <td className="text-right py-3.5 px-3 text-gray-700">{p.shares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                          <td className="text-right py-3.5 px-3 text-gray-500">{weight.toFixed(1)}%</td>
                           <td className="text-right py-3.5 px-3 text-gray-700">{formatMoneyPrecise(p.costBasis)}</td>
+                          <td className="text-right py-3.5 px-3 text-gray-700">{p.shares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                           <td className="text-right py-3.5 px-3 text-gray-900 font-medium">
                             {quotesLoaded ? formatMoneyPrecise(p.price) : <div className="h-5 w-16 rounded skeleton ml-auto" />}
                           </td>
@@ -498,13 +523,20 @@ export default function HoldingsPage() {
                           </td>
                           <td className="text-right py-3.5 px-3">
                             {quotesLoaded ? (
-                              <span className={`font-semibold ${pnlIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                                {pnlIsPos ? '+' : ''}{formatMoneyPrecise(p.unrealizedPnl)}
-                                <span className="text-xs ml-1 opacity-75">({formatPct(p.unrealizedPnlPct, 1)})</span>
+                              <span className={`font-semibold ${dayIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatPct(p.dayChangePct, 1)}
+                                <span className="text-xs ml-1 opacity-75">({dayIsPos ? '+' : ''}{formatMoneyPrecise(p.dailyPnl)})</span>
                               </span>
                             ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
                           </td>
-                          <td className="text-right py-3.5 px-3 text-gray-500">{weight.toFixed(1)}%</td>
+                          <td className="text-right py-3.5 px-3">
+                            {quotesLoaded ? (
+                              <span className={`font-semibold ${pnlIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatPct(p.unrealizedPnlPct, 1)}
+                                <span className="text-xs ml-1 opacity-75">({pnlIsPos ? '+' : ''}{formatMoneyPrecise(p.unrealizedPnl)})</span>
+                              </span>
+                            ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
+                          </td>
                           <td className="text-right py-3.5 px-3">
                             <button onClick={() => removeHolding(p.ticker)} className="text-gray-300 hover:text-red-500 transition-colors p-1" title="Remove">
                               <Trash2 size={14} />
