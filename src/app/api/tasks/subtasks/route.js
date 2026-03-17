@@ -36,11 +36,15 @@ export async function POST(request) {
 export async function PATCH(request) {
   try {
     const body = await request.json();
-    const { id, ...updates } = body;
+    const { id, title, done } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
+
+    const updates = {};
+    if (title !== undefined) updates.title = title;
+    if (done !== undefined) updates.done = done;
 
     const { data: subtask, error } = await supabase
       .from('subtasks')

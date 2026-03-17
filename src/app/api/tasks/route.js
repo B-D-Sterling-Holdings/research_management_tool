@@ -92,11 +92,18 @@ export async function POST(request) {
 export async function PATCH(request) {
   try {
     const body = await request.json();
-    const { id, ...updates } = body;
+    const { id, title, priority, due_date, assigned_to, status } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
+
+    const updates = {};
+    if (title !== undefined) updates.title = title;
+    if (priority !== undefined) updates.priority = priority;
+    if (due_date !== undefined) updates.due_date = due_date;
+    if (assigned_to !== undefined) updates.assigned_to = assigned_to;
+    if (status !== undefined) updates.status = status;
 
     // If changing priority, check target tier limit
     if (updates.priority && LIMITS[updates.priority]) {
