@@ -440,8 +440,86 @@ export default function HoldingsPage() {
             <Treemap positions={treemapPositions} mode={treemapMode} />
           </Card>
 
+          {/* Positions Table */}
+          <Card
+            title="Positions"
+            actions={
+              <input
+                type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Search ticker..."
+                className="w-44 bg-gray-50/50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
+              />
+            }
+          >
+            {filtered.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                No holdings yet. Add your first position above.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      {['Symbol', '% AUM', 'Mkt Value', 'Avg Cost', 'Qty', 'Price', 'Daily P&L', 'Unreal P&L', ''].map((col, i) => (
+                        <th key={i} className={`py-3 px-3 text-xs text-gray-400 uppercase tracking-wider font-semibold ${i === 0 ? 'text-left' : 'text-right'}`}>
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(p => {
+                      const weight = totalAum > 0 ? (p.value / totalAum) * 100 : 0;
+                      const dayIsPos = p.dailyPnl >= 0;
+                      const pnlIsPos = p.unrealizedPnl >= 0;
+                      return (
+                        <tr key={p.ticker} className="border-b border-gray-50 hover:bg-emerald-50/30 transition-colors duration-150">
+                          <td className="py-3.5 px-3">
+                            <span className="bg-emerald-50 text-emerald-700 font-bold text-xs px-2.5 py-1 rounded-lg">
+                              {p.ticker}
+                            </span>
+                          </td>
+                          <td className="text-right py-3.5 px-3 text-gray-500">{weight.toFixed(1)}%</td>
+                          <td className="text-right py-3.5 px-3 text-gray-900 font-semibold">
+                            {quotesLoaded ? formatMoney(p.value) : <div className="h-5 w-20 rounded skeleton ml-auto" />}
+                          </td>
+                          <td className="text-right py-3.5 px-3 text-gray-700">{formatMoneyPrecise(p.costBasis)}</td>
+                          <td className="text-right py-3.5 px-3 text-gray-700">{p.shares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                          <td className="text-right py-3.5 px-3 text-gray-900 font-medium">
+                            {quotesLoaded ? formatMoneyPrecise(p.price) : <div className="h-5 w-16 rounded skeleton ml-auto" />}
+                          </td>
+                          <td className="text-right py-3.5 px-3">
+                            {quotesLoaded ? (
+                              <span className={`font-semibold ${dayIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatPct(p.dayChangePct, 1)}
+                                <span className="text-xs ml-1 opacity-75">({dayIsPos ? '+' : ''}{formatMoneyPrecise(p.dailyPnl)})</span>
+                              </span>
+                            ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
+                          </td>
+                          <td className="text-right py-3.5 px-3">
+                            {quotesLoaded ? (
+                              <span className={`font-semibold ${pnlIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {formatPct(p.unrealizedPnlPct, 1)}
+                                <span className="text-xs ml-1 opacity-75">({pnlIsPos ? '+' : ''}{formatMoneyPrecise(p.unrealizedPnl)})</span>
+                              </span>
+                            ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
+                          </td>
+                          <td className="text-right py-3.5 px-3">
+                            <button onClick={() => removeHolding(p.ticker)} className="text-gray-300 hover:text-red-500 transition-colors p-1" title="Remove">
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
           {/* Add Holding Form */}
-          <Card title="Add Position" className="mb-6">
+          <Card title="Add Position" className="mt-6 mb-6">
             <form onSubmit={addHolding} className="flex flex-wrap gap-4 items-end">
               <div className="flex-1 min-w-[140px]">
                 <label className="text-xs text-gray-500 uppercase tracking-wider font-semibold block mb-1.5">Ticker Symbol</label>
@@ -472,84 +550,6 @@ export default function HoldingsPage() {
               />
               <span className="text-xs text-gray-400">Press Enter to save</span>
             </div>
-          </Card>
-
-          {/* Positions Table */}
-          <Card
-            title="Positions"
-            actions={
-              <input
-                type="text" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search ticker..."
-                className="w-44 bg-gray-50/50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
-              />
-            }
-          >
-            {filtered.length === 0 ? (
-              <div className="text-center py-12 text-gray-400 text-sm">
-                No holdings yet. Add your first position above.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      {['Symbol', '% AUM', 'Avg Cost', 'Qty', 'Price', 'Mkt Value', 'Daily P&L', 'Unreal P&L', ''].map((col, i) => (
-                        <th key={i} className={`py-3 px-3 text-xs text-gray-400 uppercase tracking-wider font-semibold ${i === 0 ? 'text-left' : 'text-right'}`}>
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map(p => {
-                      const weight = totalAum > 0 ? (p.value / totalAum) * 100 : 0;
-                      const dayIsPos = p.dailyPnl >= 0;
-                      const pnlIsPos = p.unrealizedPnl >= 0;
-                      return (
-                        <tr key={p.ticker} className="border-b border-gray-50 hover:bg-emerald-50/30 transition-colors duration-150">
-                          <td className="py-3.5 px-3">
-                            <span className="bg-emerald-50 text-emerald-700 font-bold text-xs px-2.5 py-1 rounded-lg">
-                              {p.ticker}
-                            </span>
-                          </td>
-                          <td className="text-right py-3.5 px-3 text-gray-500">{weight.toFixed(1)}%</td>
-                          <td className="text-right py-3.5 px-3 text-gray-700">{formatMoneyPrecise(p.costBasis)}</td>
-                          <td className="text-right py-3.5 px-3 text-gray-700">{p.shares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                          <td className="text-right py-3.5 px-3 text-gray-900 font-medium">
-                            {quotesLoaded ? formatMoneyPrecise(p.price) : <div className="h-5 w-16 rounded skeleton ml-auto" />}
-                          </td>
-                          <td className="text-right py-3.5 px-3 text-gray-900 font-semibold">
-                            {quotesLoaded ? formatMoney(p.value) : <div className="h-5 w-20 rounded skeleton ml-auto" />}
-                          </td>
-                          <td className="text-right py-3.5 px-3">
-                            {quotesLoaded ? (
-                              <span className={`font-semibold ${dayIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                                {formatPct(p.dayChangePct, 1)}
-                                <span className="text-xs ml-1 opacity-75">({dayIsPos ? '+' : ''}{formatMoneyPrecise(p.dailyPnl)})</span>
-                              </span>
-                            ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
-                          </td>
-                          <td className="text-right py-3.5 px-3">
-                            {quotesLoaded ? (
-                              <span className={`font-semibold ${pnlIsPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                                {formatPct(p.unrealizedPnlPct, 1)}
-                                <span className="text-xs ml-1 opacity-75">({pnlIsPos ? '+' : ''}{formatMoneyPrecise(p.unrealizedPnl)})</span>
-                              </span>
-                            ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
-                          </td>
-                          <td className="text-right py-3.5 px-3">
-                            <button onClick={() => removeHolding(p.ticker)} className="text-gray-300 hover:text-red-500 transition-colors p-1" title="Remove">
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </Card>
         </>
       )}
