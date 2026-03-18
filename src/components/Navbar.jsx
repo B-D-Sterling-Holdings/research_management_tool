@@ -19,9 +19,10 @@ const NAV_GROUPS = [
       { href: '/holdings?tab=risk', label: 'Risk', icon: Shield },
       { href: '/holdings?tab=factors', label: 'Factors', icon: BarChart3 },
       { href: '/allocation', label: 'Allocation', icon: PieChart },
+      { href: '/tasks', label: 'Task Board', icon: ClipboardList },
     ],
     // Active if any child route is active
-    matchPaths: ['/holdings', '/allocation'],
+    matchPaths: ['/holdings', '/allocation', '/tasks'],
   },
   {
     label: 'Equity Research',
