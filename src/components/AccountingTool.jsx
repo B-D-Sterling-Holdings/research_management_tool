@@ -841,10 +841,8 @@ export default function AccountingTool() {
   }, []);
 
   // Load: migrate localStorage → Supabase (one-time), then Supabase-only
-  const loadedRef = useRef(false);
   useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
+    let cancelled = false;
 
     async function load() {
       // One-time migration: if localStorage has data, push it to Supabase and delete local
@@ -857,7 +855,7 @@ export default function AccountingTool() {
             value: JSON.stringify(parsed),
           });
           localStorage.removeItem(STORAGE_KEY);
-          setState(parsed);
+          if (!cancelled) setState(parsed);
           return;
         }
       } catch {}
@@ -872,7 +870,7 @@ export default function AccountingTool() {
 
         if (!error && data?.value) {
           const parsed = JSON.parse(data.value);
-          setState(backfillSP(parsed));
+          if (!cancelled) setState(backfillSP(parsed));
           return;
         }
       } catch {}
@@ -883,23 +881,33 @@ export default function AccountingTool() {
         key: STORAGE_KEY,
         value: JSON.stringify(seed),
       });
-      setState(seed);
+      if (!cancelled) setState(seed);
     }
 
     load();
+    return () => { cancelled = true; };
   }, [backfillSP]);
 
-  // Persist to Supabase only
-  const isFirstRender = useRef(true);
+  // Persist to Supabase on every state change (skip the initial load)
+  const hasLoadedOnce = useRef(false);
+  const prevStateRef = useRef(null);
   useEffect(() => {
     if (!state) return;
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
+    // Skip the first time state is set (initial load from Supabase)
+    if (!hasLoadedOnce.current) {
+      hasLoadedOnce.current = true;
+      prevStateRef.current = state;
       return;
     }
+    // Skip if state reference hasn't actually changed (e.g. Strict Mode re-run)
+    if (state === prevStateRef.current) return;
+    prevStateRef.current = state;
+
     supabase.from('app_settings').upsert({
       key: STORAGE_KEY,
       value: JSON.stringify(state),
+    }).then(({ error }) => {
+      if (error) console.error('Failed to persist accounting state:', error);
     });
   }, [state]);
 
