@@ -100,6 +100,7 @@ export default function AllocationPage() {
   const [simulationError, setSimulationError] = useState('');
   const [simulationResult, setSimulationResult] = useState(null);
   const [simulationChart, setSimulationChart] = useState(null);
+  const [simulating, setSimulating] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const saveTimer = useRef(null);
   const tableRef = useRef(null);
@@ -232,6 +233,12 @@ export default function AllocationPage() {
     setSimulationError('');
     setSimulationResult(null);
     setSimulationChart(null);
+    setSimulating(true);
+    // Defer heavy work so the loading state renders first
+    setTimeout(() => _runSimulation(), 50);
+  };
+
+  const _runSimulation = () => {
 
     const filtered = allocations.filter(
       (row) =>
@@ -243,6 +250,7 @@ export default function AllocationPage() {
 
     if (filtered.length === 0) {
       setSimulationError('Add at least one asset to run the simulation.');
+      setSimulating(false);
       return;
     }
 
@@ -294,12 +302,14 @@ export default function AllocationPage() {
 
     if (problems.length > 0) {
       setSimulationError(problems.join(' '));
+      setSimulating(false);
       return;
     }
 
     const cashIndex = assets.indexOf('CASH');
     if (cashIndex === -1) {
       setSimulationError('Include a CASH row to apply cash weight constraints.');
+      setSimulating(false);
       return;
     }
 
@@ -393,6 +403,7 @@ export default function AllocationPage() {
 
     if (simulations.length === 0) {
       setSimulationError('Unable to generate portfolios with the provided constraints.');
+      setSimulating(false);
       return;
     }
 
@@ -551,18 +562,24 @@ export default function AllocationPage() {
       },
       userDefined: userMetrics,
     });
+    setSimulating(false);
   };
+
+  if (!loaded) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
+        <div className="flex items-center justify-center py-24">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
       <div className="animate-fade-in-up">
-        <div className="mb-8 pt-8">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Project Optimum</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Input expected returns and risk parameters to simulate the optimal risk to reward portfolios.
-            </p>
-          </div>
+        <div className="flex items-center justify-between mb-6 animate-fade-in-up">
+          <h1 className="text-3xl font-bold text-gray-900">Project Optimum</h1>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6 mb-8 animate-fade-in-up stagger-2">
@@ -763,10 +780,23 @@ export default function AllocationPage() {
           <button
             type="button"
             onClick={runMonteCarloSimulation}
-            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-cyan-600 text-white rounded-xl font-semibold hover:bg-cyan-700 transition-colors"
+            disabled={simulating}
+            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-cyan-600 text-white rounded-xl font-semibold hover:bg-cyan-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Zap className="w-4 h-4" />
-            Run Simulation
+            {simulating ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Simulating...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4" />
+                Run Simulation
+              </>
+            )}
           </button>
         </div>
 
