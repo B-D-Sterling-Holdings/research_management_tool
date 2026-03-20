@@ -12,8 +12,6 @@ import {
 const CONTENT_TYPES = [
   { value: 'tweet',         label: 'Tweet',         icon: MessageSquare, color: 'blue' },
   { value: 'web_article',   label: 'Article',       icon: FileText,      color: 'emerald' },
-  { value: 'press_release', label: 'Press Release', icon: Newspaper,     color: 'violet' },
-  { value: 'filing',        label: 'Filing',        icon: Gavel,         color: 'amber' },
   { value: 'transcript',    label: 'Transcript',    icon: Mic,           color: 'teal' },
   { value: 'white_paper',   label: 'White Paper',   icon: BookOpen,      color: 'indigo' },
   { value: 'other',         label: 'Other',         icon: MoreHorizontal,color: 'gray' },
@@ -46,8 +44,6 @@ const FILTER_TABS = [
   { value: '', label: 'All' },
   { value: 'tweet', label: 'Tweets' },
   { value: 'web_article', label: 'Articles' },
-  { value: 'press_release', label: 'Press Releases' },
-  { value: 'filing', label: 'Filings' },
   { value: 'transcript', label: 'Transcripts' },
   { value: 'white_paper', label: 'White Papers' },
 ];
@@ -404,6 +400,7 @@ export default function LinkDatabasePage() {
       if (data.link) {
         setLinks(prev => [data.link, ...prev]);
         setUrl('');
+        setAddTicker('');
         setJustSaved(true);
         setTimeout(() => setJustSaved(false), 1200);
         urlRef.current?.focus();
