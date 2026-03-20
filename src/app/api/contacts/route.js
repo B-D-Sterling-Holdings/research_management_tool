@@ -20,7 +20,9 @@ import { supabase } from '@/lib/supabase';
     last_contacted_at TIMESTAMPTZ,
     tags JSONB DEFAULT '[]'::jsonb,
     city TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
     notes TEXT DEFAULT '',
+    last_meeting_note TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
   );
@@ -28,6 +30,11 @@ import { supabase } from '@/lib/supabase';
   CREATE INDEX idx_contacts_status ON contacts(status);
   CREATE INDEX idx_contacts_follow_up ON contacts(follow_up_date);
   CREATE INDEX idx_contacts_last_contacted ON contacts(last_contacted_at);
+
+  -- If table already exists, run these to add missing columns:
+  -- ALTER TABLE contacts ADD COLUMN IF NOT EXISTS importance INTEGER DEFAULT 3;
+  -- ALTER TABLE contacts ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
+  -- ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_meeting_note TEXT DEFAULT '';
 */
 
 const TABLE = 'contacts';
@@ -59,13 +66,16 @@ export async function POST(req) {
     contact_value: body.contact_value || '',
     status: 'active',
     relationship_strength: 'new',
+    importance: body.importance || 3,
     summary: body.summary || '',
     next_action: '',
     follow_up_date: null,
     last_contacted_at: null,
     tags: body.tags || [],
     city: body.city || '',
+    phone: body.phone || '',
     notes: '',
+    last_meeting_note: '',
     updated_at: new Date().toISOString(),
   };
 
