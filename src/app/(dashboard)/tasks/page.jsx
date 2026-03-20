@@ -384,6 +384,55 @@ export default function TaskBoardPage() {
     updateSubtasks(taskId, subtasks);
   };
 
+  // Subtask drag reorder — pointer-event based, immediate swap on crossing midpoints
+  const [subDragId, setSubDragId] = useState(null); // currently dragging subtask id
+  const subDragTaskId = useRef(null);
+  const subRowRefs = useRef({}); // subId -> element ref
+
+  const handleSubPointerDown = (e, taskId, subId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSubDragId(subId);
+    subDragTaskId.current = taskId;
+
+    const onMove = (ev) => {
+      const tid = subDragTaskId.current;
+      if (!tid) return;
+      // Find which row the pointer is over by checking midpoints
+      const task = tasksRef.current.find(t => t.id === tid);
+      if (!task) return;
+      const subs = task.subtasks || [];
+      const curIdx = subs.findIndex(s => s.id === subId);
+      if (curIdx === -1) return;
+
+      for (let i = 0; i < subs.length; i++) {
+        if (i === curIdx) continue;
+        const el = subRowRefs.current[subs[i].id];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        // If dragging down and pointer passed below a lower item's midpoint, swap
+        // If dragging up and pointer passed above a higher item's midpoint, swap
+        if ((i > curIdx && ev.clientY > midY) || (i < curIdx && ev.clientY < midY)) {
+          const newSubs = [...subs];
+          const [moved] = newSubs.splice(curIdx, 1);
+          newSubs.splice(i, 0, moved);
+          updateSubtasks(tid, newSubs);
+          break; // only swap one at a time
+        }
+      }
+    };
+
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      setSubDragId(null);
+      subDragTaskId.current = null;
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  };
+
   // --- Drag and Drop ---
 
   // Find which priority section a task or droppable belongs to
@@ -763,17 +812,27 @@ export default function TaskBoardPage() {
 
                           {/* Subtasks */}
                           {isExpanded && (
-                            <div className="ml-10 mt-1 space-y-1">
+                            <div className="ml-10 mt-1">
                               {subtasks.map(sub => {
                                 const subKey = `${task.id}-${sub.id}`;
                                 const isEditingSub = editingSubId === subKey;
                                 const pickerKey = `sub-${task.id}-${sub.id}`;
+                                const isDraggingThis = subDragId === sub.id;
 
                                 return (
                                   <div
                                     key={sub.id}
-                                    className="flex items-center gap-3 px-4 py-2 rounded-lg group/sub hover:bg-gray-50 transition-colors"
+                                    ref={el => { subRowRefs.current[sub.id] = el; }}
+                                    className={`flex items-center gap-3 px-4 py-2 rounded-lg group/sub hover:bg-gray-50 transition-all duration-150 ${
+                                      isDraggingThis ? 'bg-emerald-50 shadow-sm ring-1 ring-emerald-200 scale-[1.01]' : ''
+                                    } ${subDragId && !isDraggingThis ? 'transition-all duration-200' : ''}`}
                                   >
+                                    <div
+                                      onPointerDown={(e) => handleSubPointerDown(e, task.id, sub.id)}
+                                      className="flex-shrink-0 text-gray-300 opacity-0 group-hover/sub:opacity-100 transition-opacity cursor-grab touch-none select-none"
+                                    >
+                                      <GripVertical size={12} />
+                                    </div>
                                     <button
                                       onClick={() => toggleSubtask(task.id, sub.id)}
                                       className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition-all duration-200 ${
