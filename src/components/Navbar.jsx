@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Search, Eye, FolderOpen, LogOut, ClipboardList,
-  ChevronDown, Shield, BarChart3, PieChart, FileText, Scale, DollarSign, Link2,
+  ChevronDown, Shield, BarChart3, PieChart, FileText, Scale, DollarSign, Link2, Users,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -18,9 +18,10 @@ const NAV_GROUPS = [
       { href: '/holdings', label: 'Holdings', icon: Briefcase },
       { href: '/allocation', label: 'Allocation', icon: PieChart },
       { href: '/tasks', label: 'Task Board', icon: ClipboardList },
+      { href: '/relationships', label: 'Relationships', icon: Users },
     ],
     // Active if any child route is active
-    matchPaths: ['/holdings', '/allocation', '/tasks'],
+    matchPaths: ['/holdings', '/allocation', '/tasks', '/relationships'],
   },
   {
     label: 'Equity Research',
@@ -45,7 +46,7 @@ const NAV_GROUPS = [
   },
 ];
 
-function NavDropdown({ group, pathname, searchParams }) {
+function NavDropdown({ group, pathname, searchParams, isDark }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const timeoutRef = useRef(null);
@@ -83,8 +84,8 @@ function NavDropdown({ group, pathname, searchParams }) {
         className={`
           flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200
           ${isGroupActive
-            ? 'text-emerald-700 bg-emerald-50'
-            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+            ? isDark ? 'text-emerald-400 bg-emerald-500/15' : 'text-emerald-700 bg-emerald-50'
+            : isDark ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
           }
         `}
       >
@@ -92,12 +93,12 @@ function NavDropdown({ group, pathname, searchParams }) {
         {group.label}
         <ChevronDown size={13} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
         {isGroupActive && (
-          <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-emerald-500 rounded-full" />
+          <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'}`} />
         )}
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl shadow-lg shadow-gray-200/80 border border-gray-100 py-1.5 z-50">
+        <div className={`absolute top-full left-0 mt-1 w-52 rounded-xl shadow-lg py-1.5 z-50 ${isDark ? 'bg-gray-900/95 backdrop-blur-xl border border-white/10 shadow-black/30' : 'bg-white border border-gray-100 shadow-gray-200/80'}`}>
           {group.items.map(({ href, label, icon: ItemIcon }) => {
             const isItemActive = href.includes('?')
               ? currentFullPath === href
@@ -111,12 +112,12 @@ function NavDropdown({ group, pathname, searchParams }) {
                 className={`
                   flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium no-underline transition-all duration-150
                   ${isItemActive
-                    ? 'text-emerald-700 bg-emerald-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    ? isDark ? 'text-emerald-400 bg-emerald-500/15' : 'text-emerald-700 bg-emerald-50'
+                    : isDark ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }
                 `}
               >
-                <ItemIcon size={15} className={isItemActive ? 'text-emerald-600' : 'text-gray-400'} />
+                <ItemIcon size={15} className={isItemActive ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-gray-500' : 'text-gray-400')} />
                 {label}
               </Link>
             );
@@ -131,6 +132,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { logout } = useAuth();
+  const isDark = false;
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -141,9 +143,9 @@ export default function Navbar() {
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-      scrolled
-        ? 'bg-white/80 backdrop-blur-md shadow-md'
-        : 'bg-white/60 backdrop-blur-sm'
+      isDark
+        ? scrolled ? 'bg-gray-950/80 backdrop-blur-md shadow-lg shadow-black/20' : 'bg-transparent backdrop-blur-[2px]'
+        : scrolled ? 'bg-white/80 backdrop-blur-md shadow-md' : 'bg-white/60 backdrop-blur-sm'
     }`}>
       <div className="max-w-7xl mx-auto px-6 lg:px-12 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3 no-underline group">
@@ -155,15 +157,15 @@ export default function Navbar() {
             className="h-11 w-auto object-contain"
             priority
           />
-          <span className="text-gray-400 text-sm font-medium">|</span>
-          <span className="text-gray-700 font-semibold text-sm tracking-tight group-hover:text-emerald-700 transition-colors">
+          <span className={`text-sm font-medium ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>|</span>
+          <span className={`font-semibold text-sm tracking-tight transition-colors ${isDark ? 'text-gray-400 group-hover:text-emerald-400' : 'text-gray-700 group-hover:text-emerald-700'}`}>
             Research Management System
           </span>
         </Link>
 
         <div className="flex items-center gap-1">
           {NAV_GROUPS.map(group => (
-            <NavDropdown key={group.label} group={group} pathname={pathname} searchParams={searchParams} />
+            <NavDropdown key={group.label} group={group} pathname={pathname} searchParams={searchParams} isDark={isDark} />
           ))}
 
           <button
@@ -171,7 +173,7 @@ export default function Navbar() {
               await logout();
               window.location.href = '/login';
             }}
-            className="ml-4 p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all duration-200"
+            className={`ml-4 p-2 rounded-lg transition-all duration-200 ${isDark ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`}
             title="Sign out"
           >
             <LogOut size={16} />
