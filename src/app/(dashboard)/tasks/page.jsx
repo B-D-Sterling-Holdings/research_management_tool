@@ -521,59 +521,71 @@ export default function TaskBoardPage() {
       return;
     }
 
-    // Apply final position with arrayMove within the same container
-    setTasks(prev => {
-      const activePriority = prev.find(t => t.id === active.id)?.priority;
-      if (!activePriority) return prev;
+    // Compute the new task list synchronously, then set state AND persist
+    const prev = tasksRef.current;
+    const activePriority = prev.find(t => t.id === active.id)?.priority;
+    if (!activePriority) return;
 
-      const overIsSection = typeof over.id === 'string' && over.id.startsWith('section-');
-      if (overIsSection) return prev; // cross-container was already handled in onDragOver
+    const overIsSection = typeof over.id === 'string' && over.id.startsWith('section-');
 
+    let newTasks = prev;
+    let itemsToSave = [];
+
+    if (overIsSection) {
+      // Cross-container was handled in onDragOver — persist current state
+      newTasks = prev;
+      itemsToSave = prev
+        .filter(t => {
+          const orig = snapshot.find(s => s.id === t.id);
+          return !orig || orig.position !== t.position || orig.priority !== t.priority;
+        })
+        .map(t => {
+          const orig = snapshot.find(s => s.id === t.id);
+          const item = { id: t.id, position: t.position };
+          if (orig && orig.priority !== t.priority) item.priority = t.priority;
+          return item;
+        });
+    } else {
       const overTask = prev.find(t => t.id === over.id);
-      if (!overTask || overTask.priority !== activePriority) return prev;
+      if (!overTask || overTask.priority !== activePriority) return;
 
       // Same container — reorder with arrayMove
       const sectionTasks = prev.filter(t => t.priority === activePriority);
       const oldIdx = sectionTasks.findIndex(t => t.id === active.id);
       const newIdx = sectionTasks.findIndex(t => t.id === over.id);
-      if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return prev;
+      if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return;
 
       const reordered = arrayMove(sectionTasks, oldIdx, newIdx);
       const reorderedWithPos = reordered.map((t, i) => ({ ...t, position: i }));
 
       const otherTasks = prev.filter(t => t.priority !== activePriority);
-      return [...otherTasks, ...reorderedWithPos].sort((a, b) => {
+      newTasks = [...otherTasks, ...reorderedWithPos].sort((a, b) => {
         const pa = PRIORITY_SECTIONS.findIndex(s => s.key === a.priority);
         const pb = PRIORITY_SECTIONS.findIndex(s => s.key === b.priority);
         if (pa !== pb) return pa - pb;
         return a.position - b.position;
       });
-    });
 
-    // Persist — diff final state against snapshot (wait one frame for setState to flush)
-    await new Promise(r => requestAnimationFrame(r));
-
-    const finalTasks = tasksRef.current;
-    if (!finalTasks || !snapshot) return;
-
-    const itemsToSave = [];
-    for (const task of finalTasks) {
-      const orig = snapshot.find(t => t.id === task.id);
-      if (!orig || orig.position !== task.position || orig.priority !== task.priority) {
-        const item = { id: task.id, position: task.position };
-        if (orig && orig.priority !== task.priority) item.priority = task.priority;
-        itemsToSave.push(item);
-      }
+      itemsToSave = reorderedWithPos
+        .filter(t => {
+          const orig = snapshot.find(s => s.id === t.id);
+          return !orig || orig.position !== t.position;
+        })
+        .map(t => ({ id: t.id, position: t.position }));
     }
 
+    setTasks(newTasks);
+
+    // Persist
     if (itemsToSave.length === 0) return;
 
     try {
-      await fetch('/api/tasks/reorder', {
+      const res = await fetch('/api/tasks/reorder', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: itemsToSave }),
       });
+      if (!res.ok) console.error('Reorder API error:', await res.text());
     } catch (err) {
       console.error('Failed to reorder tasks', err);
       setTasks(snapshot);

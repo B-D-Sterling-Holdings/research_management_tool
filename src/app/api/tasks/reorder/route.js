@@ -10,14 +10,16 @@ export async function PATCH(req) {
   }
 
   // items: [{ id, position, priority? }]
-  const updates = items.map(({ id, position, priority }) => {
-    const row = { id, position, updated_at: new Date().toISOString() };
-    if (priority) row.priority = priority;
-    return row;
-  });
+  const now = new Date().toISOString();
+  const results = await Promise.all(
+    items.map(({ id, position, priority }) => {
+      const row = { position, updated_at: now };
+      if (priority) row.priority = priority;
+      return supabase.from('tasks').update(row).eq('id', id);
+    })
+  );
 
-  const { error } = await supabase.from('tasks').upsert(updates, { onConflict: 'id' });
-
+  const error = results.find(r => r.error)?.error;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
