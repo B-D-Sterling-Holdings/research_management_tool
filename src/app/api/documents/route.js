@@ -69,6 +69,36 @@ export async function POST(request) {
   }
 }
 
+export async function PUT(request) {
+  try {
+    const body = await request.json();
+    const { id, title } = body;
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
+    }
+
+    const { category, ticker, notes } = body;
+    const updates = {};
+    if (title !== undefined) updates.title = title;
+    if (category !== undefined) updates.category = category;
+    if (ticker !== undefined) updates.ticker = ticker;
+    if (notes !== undefined) updates.notes = notes;
+
+    const { data: doc, error } = await supabase
+      .from('documents')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({ success: true, document: doc });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
 export async function DELETE(request) {
   try {
     const { searchParams } = new URL(request.url);

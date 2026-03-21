@@ -154,6 +154,27 @@ body {
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12);
 }
 
+/* ── Document list filter transition ──────────────────────────── */
+
+@keyframes doc-row-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.doc-row-enter {
+  animation: doc-row-in 0.25s ease-out both;
+}
+
+@keyframes doc-row-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+
+.doc-row-exit {
+  animation: doc-row-out 0.2s ease-in both;
+  pointer-events: none;
+}
+
 .gradient-text {
   background: linear-gradient(135deg, #10b981, #06b6d4);
   -webkit-background-clip: text;

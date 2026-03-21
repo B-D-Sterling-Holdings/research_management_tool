@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  FolderOpen, Upload, Trash2, Search, FileText, File, X, Download,
-  Image as ImageIcon, UploadCloud, ChevronRight, ExternalLink, Filter,
-  FileSpreadsheet, BookOpen, Mail, Archive,
+  FolderOpen, Upload, Trash2, Search, FileText, File, X,
+  Image as ImageIcon, UploadCloud, ChevronRight, ExternalLink,
+  FileSpreadsheet, BookOpen, Mail, Archive, Scale, Pencil, Check, ChevronDown, Download,
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -12,6 +12,8 @@ const CATEGORIES = [
   { value: 'equity_research', label: 'Equity Research', icon: BookOpen, color: 'emerald' },
   { value: 'investor_memo', label: 'Investor Memos', icon: FileText, color: 'violet' },
   { value: 'financial_model', label: 'Financial Models', icon: FileSpreadsheet, color: 'amber' },
+  { value: 'legal', label: 'Legal', icon: Scale, color: 'indigo' },
+  { value: 'tax', label: 'Tax', icon: FileText, color: 'rose' },
   { value: 'other', label: 'Other', icon: Archive, color: 'gray' },
 ];
 
@@ -20,6 +22,8 @@ const COLOR_MAP = {
   emerald: { badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500', hover: 'hover:bg-emerald-50', active: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
   violet:  { badge: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500', hover: 'hover:bg-violet-50', active: 'bg-violet-50 border-violet-200 text-violet-700' },
   amber:   { badge: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500', hover: 'hover:bg-amber-50', active: 'bg-amber-50 border-amber-200 text-amber-700' },
+  indigo:  { badge: 'bg-indigo-50 text-indigo-700 border-indigo-200', dot: 'bg-indigo-500', hover: 'hover:bg-indigo-50', active: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+  rose:    { badge: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500', hover: 'hover:bg-rose-50', active: 'bg-rose-50 border-rose-200 text-rose-700' },
   gray:    { badge: 'bg-gray-100 text-gray-600 border-gray-200', dot: 'bg-gray-400', hover: 'hover:bg-gray-50', active: 'bg-gray-100 border-gray-300 text-gray-700' },
 };
 
@@ -98,7 +102,13 @@ export default function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ title: '', category: '', ticker: '', notes: '' });
+  const [filterTicker, setFilterTicker] = useState('');
+  const [tickerDropdownOpen, setTickerDropdownOpen] = useState(false);
+  const tickerDropdownRef = useRef(null);
 
   // Upload form state
   const [pendingFiles, setPendingFiles] = useState([]);
@@ -170,19 +180,83 @@ export default function DocumentsPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleDownload = async (doc) => {
+    try {
+      const res = await fetch(doc.url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = doc.file_name || doc.title || 'download';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
+  };
+
   const handleDelete = async (id) => {
+    setDeletingId(id);
     try {
       await fetch(`/api/documents?id=${id}`, { method: 'DELETE' });
       setDocuments(prev => prev.filter(d => d.id !== id));
       setConfirmDeleteId(null);
-    } catch {}
+    } catch {} finally {
+      setDeletingId(null);
+    }
   };
+
+  const startEditing = (doc) => {
+    setEditingId(doc.id);
+    setEditForm({
+      title: doc.title || doc.file_name || '',
+      category: doc.category || 'other',
+      ticker: doc.ticker || '',
+      notes: doc.notes || '',
+    });
+  };
+
+  const handleSaveEdit = async (id) => {
+    try {
+      const res = await fetch('/api/documents', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          title: editForm.title.trim() || undefined,
+          category: editForm.category,
+          ticker: editForm.ticker.trim().toUpperCase(),
+          notes: editForm.notes.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.document) {
+        setDocuments(prev => prev.map(d => d.id === id ? data.document : d));
+      }
+    } catch {} finally {
+      setEditingId(null);
+    }
+  };
+
+  // Close ticker dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (tickerDropdownRef.current && !tickerDropdownRef.current.contains(e.target)) {
+        setTickerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // Derived data
   const filtered = useMemo(() => (
     documents
       .filter(d => {
         if (filterCategory && d.category !== filterCategory) return false;
+        if (filterTicker && d.ticker !== filterTicker) return false;
         if (searchQuery) {
           const q = searchQuery.toLowerCase();
           return (
@@ -195,7 +269,7 @@ export default function DocumentsPage() {
         return true;
       })
       .sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
-  ), [documents, filterCategory, searchQuery]);
+  ), [documents, filterCategory, filterTicker, searchQuery]);
 
   const categoryCounts = useMemo(() => {
     const counts = {};
@@ -212,6 +286,26 @@ export default function DocumentsPage() {
   const totalSize = useMemo(() =>
     documents.reduce((sum, d) => sum + (Number(d.file_size) || 0), 0)
   , [documents]);
+
+  const filterKey = `${searchQuery}|${filterCategory}|${filterTicker}`;
+
+  const filteredIds = useMemo(() => new Set(filtered.map(d => d.id)), [filtered]);
+  const [visibleDocs, setVisibleDocs] = useState(documents);
+  const [exitingIds, setExitingIds] = useState(new Set());
+
+  useEffect(() => {
+    const leaving = visibleDocs.filter(d => !filteredIds.has(d.id)).map(d => d.id);
+    if (leaving.length > 0) {
+      setExitingIds(new Set(leaving));
+      const timer = setTimeout(() => {
+        setExitingIds(new Set());
+        setVisibleDocs(filtered);
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      setVisibleDocs(filtered);
+    }
+  }, [filtered]);
 
   if (loading) {
     return (
@@ -420,25 +514,45 @@ export default function DocumentsPage() {
             </div>
           </div>
 
-          {/* Ticker chips */}
+          {/* Ticker dropdown */}
           {tickerChips.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-3">By Ticker</p>
-              <div className="flex flex-wrap gap-1.5">
-                {tickerChips.map(([ticker, count]) => (
-                  <button
-                    key={ticker}
-                    onClick={() => setSearchQuery(prev => prev === ticker ? '' : ticker)}
-                    className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-all ${
-                      searchQuery === ticker
-                        ? 'bg-gray-900 text-white'
-                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
-                    }`}
-                  >
-                    {ticker}
-                    <span className={`ml-1 ${searchQuery === ticker ? 'text-gray-400' : 'text-gray-400'}`}>{count}</span>
-                  </button>
-                ))}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3" ref={tickerDropdownRef}>
+              <div className="relative">
+                <button
+                  onClick={() => setTickerDropdownOpen(o => !o)}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                    filterTicker ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>{filterTicker || 'All Tickers'}</span>
+                  <div className="flex items-center gap-1.5">
+                    {filterTicker && (
+                      <span
+                        onClick={(e) => { e.stopPropagation(); setFilterTicker(''); setTickerDropdownOpen(false); }}
+                        className="text-gray-400 hover:text-white"
+                      >
+                        <X size={12} />
+                      </span>
+                    )}
+                    <ChevronDown size={13} className={`transition-transform duration-200 ${tickerDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {tickerDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-100 rounded-xl shadow-lg z-20 py-1 max-h-48 overflow-y-auto">
+                    {tickerChips.map(([ticker, count]) => (
+                      <button
+                        key={ticker}
+                        onClick={() => { setFilterTicker(prev => prev === ticker ? '' : ticker); setTickerDropdownOpen(false); }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${
+                          filterTicker === ticker ? 'text-emerald-700 bg-emerald-50 font-semibold' : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="font-mono font-semibold">{ticker}</span>
+                        <span className="text-xs text-gray-400">{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -467,7 +581,7 @@ export default function DocumentsPage() {
           </div>
 
           {/* Document list */}
-          {filtered.length === 0 ? (
+          {visibleDocs.length === 0 ? (
             <div className="text-center py-20">
               <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
                 <FolderOpen size={28} className="text-gray-300" />
@@ -481,16 +595,20 @@ export default function DocumentsPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {filtered.map(doc => {
+              {visibleDocs.map((doc, idx) => {
                 const cat = CATEGORIES.find(c => c.value === doc.category);
                 const colors = COLOR_MAP[cat?.color || 'gray'];
                 const isDeleting = confirmDeleteId === doc.id;
+                const isEditing = editingId === doc.id;
                 const fileVisual = fileIcon(doc);
 
                 return (
                   <div
                     key={doc.id}
-                    className="group bg-white rounded-2xl border border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-md transition-all"
+                    style={{ animationDelay: `${idx * 30}ms` }}
+                    className={`${exitingIds.has(doc.id) ? 'doc-row-exit' : 'doc-row-enter'} group bg-white rounded-2xl border shadow-sm transition-all ${
+                      isEditing ? 'border-emerald-200 shadow-md' : 'border-gray-100 hover:border-gray-200 hover:shadow-md'
+                    }`}
                   >
                     <div className="flex items-center gap-4 px-5 py-4">
                       {/* File icon */}
@@ -501,63 +619,157 @@ export default function DocumentsPage() {
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-semibold text-gray-900 truncate">{doc.title || doc.file_name}</h3>
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-semibold text-gray-900 truncate hover:text-emerald-700 transition-colors"
+                          >
+                            {doc.title || doc.file_name}
+                          </a>
                           {doc.ticker && (
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
                               {doc.ticker}
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-3 mt-1.5">
                           <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
                             {cat?.label || doc.category}
                           </span>
-                          <span className="text-xs text-gray-400">{formatDate(doc.uploaded_at)}</span>
-                          <span className="text-xs text-gray-400">{formatFileSize(doc.file_size)}</span>
+                          {doc.notes && (
+                            <span className="text-xs text-gray-400 truncate max-w-[200px]">{doc.notes}</span>
+                          )}
                         </div>
-                        {doc.notes && (
-                          <p className="text-xs text-gray-500 mt-1.5 truncate max-w-xl">{doc.notes}</p>
-                        )}
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <a
-                          href={doc.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                          title="Open file"
-                        >
-                          <ExternalLink size={15} />
-                        </a>
-                        {isDeleting ? (
-                          <div className="flex items-center gap-1 ml-1">
+                      {/* Right side — actions + date/size */}
+                      <div className="flex items-center flex-shrink-0 ml-auto">
+                        <div className={`flex items-center gap-0.5 transition-all duration-200 overflow-hidden ${
+                          isDeleting || deletingId === doc.id ? 'max-w-[200px] opacity-100 mr-3' : 'max-w-0 opacity-0 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:mr-3'
+                        }`}>
+                          <button
+                            onClick={() => isEditing ? setEditingId(null) : startEditing(doc)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              isEditing ? 'text-emerald-600 bg-emerald-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                            }`}
+                            title="Edit"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDownload(doc)}
+                            className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Download"
+                          >
+                            <Download size={14} />
+                          </button>
+                          {isDeleting ? (
+                            <div className="flex items-center gap-1 ml-1">
+                              {deletingId === doc.id ? (
+                                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-red-500 px-2.5 py-1.5">
+                                  <div className="w-3.5 h-3.5 border-2 border-red-200 border-t-red-500 rounded-full animate-spin" />
+                                  Deleting...
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setConfirmDeleteId(null)}
+                                    className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 transition-colors"
+                                  >
+                                    No
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(doc.id)}
+                                    className="text-[11px] font-semibold text-white bg-red-500 px-2.5 py-1.5 rounded-lg hover:bg-red-600 transition-colors"
+                                  >
+                                    Yes
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ) : (
                             <button
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg hover:bg-gray-200 transition-colors"
+                              onClick={() => setConfirmDeleteId(doc.id)}
+                              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500 font-medium">{formatDate(doc.uploaded_at)}</p>
+                          <p className="text-[11px] text-gray-400">{formatFileSize(doc.file_size)}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expandable edit panel */}
+                    {isEditing && (
+                      <div className="px-5 pb-4 pt-0">
+                        <div className="border-t border-gray-100 pt-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div>
+                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Title</label>
+                              <input
+                                type="text"
+                                value={editForm.title}
+                                onChange={(e) => setEditForm(f => ({ ...f, title: e.target.value }))}
+                                autoFocus
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Category</label>
+                              <select
+                                value={editForm.category}
+                                onChange={(e) => setEditForm(f => ({ ...f, category: e.target.value }))}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
+                              >
+                                {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Ticker</label>
+                              <input
+                                type="text"
+                                value={editForm.ticker}
+                                onChange={(e) => setEditForm(f => ({ ...f, ticker: e.target.value.toUpperCase() }))}
+                                placeholder="e.g. AAPL"
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all uppercase"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mb-1">Notes</label>
+                              <input
+                                type="text"
+                                value={editForm.notes}
+                                onChange={(e) => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                                placeholder="Quick note..."
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2 mt-3">
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="text-xs font-semibold text-gray-500 bg-gray-100 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
                             >
                               Cancel
                             </button>
                             <button
-                              onClick={() => handleDelete(doc.id)}
-                              className="text-[11px] font-semibold text-white bg-red-500 px-2.5 py-1 rounded-lg hover:bg-red-600 transition-colors"
+                              onClick={() => handleSaveEdit(doc.id)}
+                              className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
                             >
-                              Delete
+                              <Check size={12} />
+                              Save
                             </button>
                           </div>
-                        ) : (
-                          <button
-                            onClick={() => setConfirmDeleteId(doc.id)}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        )}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 );
               })}
