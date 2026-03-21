@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, X, Check, ChevronDown, ChevronRight, User, Pencil, GripVertical } from 'lucide-react';
 import { DndContext, closestCenter, pointerWithin, rectIntersection, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
@@ -15,9 +16,9 @@ const PRIORITY_SECTIONS = [
 const ASSIGNEE_PRESETS = ['Dhruv', 'Bhuvan', 'Both'];
 
 const ASSIGNEE_COLORS = {
-  dhruv:  'bg-[#4F46E5] text-white border-[#4F46E5]',
-  bhuvan: 'bg-[#16A34A] text-white border-[#16A34A]',
-  both:   'bg-[#6B7280] text-white border-[#6B7280]',
+  dhruv:  'bg-[#2563eb] text-white border-[#2563eb]',
+  bhuvan: 'bg-[#dc2626] text-white border-[#dc2626]',
+  both:   'bg-[#16a34a] text-white border-[#16a34a]',
 };
 
 function getAssigneeStyle(assignee) {
@@ -48,9 +49,17 @@ function AssigneeTag({ assignee, onClick, size = 'normal' }) {
   );
 }
 
-function AssigneePicker({ current, onSelect, onClose }) {
+function AssigneePicker({ current, onSelect, onClose, anchorRef }) {
   const [customValue, setCustomValue] = useState('');
   const ref = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (anchorRef?.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.right });
+    }
+  }, [anchorRef]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -60,8 +69,8 @@ function AssigneePicker({ current, onSelect, onClose }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  return (
-    <div ref={ref} className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[140px]">
+  return createPortal(
+    <div ref={ref} style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-100%)' }} className="z-[9999] bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[140px]">
       {ASSIGNEE_PRESETS.map(name => (
         <button
           key={name}
@@ -97,7 +106,8 @@ function AssigneePicker({ current, onSelect, onClose }) {
           Remove assignee
         </button>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -157,6 +167,7 @@ export default function TaskBoardPage() {
   tasksRef.current = tasks;
   const editRef = useRef(null);
   const subEditRef = useRef(null);
+  const assigneeAnchorRefs = useRef({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -755,7 +766,7 @@ export default function TaskBoardPage() {
                               )}
 
                               {/* Assignee tag */}
-                              <div className="relative flex-shrink-0">
+                              <div className="relative flex-shrink-0" ref={el => { assigneeAnchorRefs.current[`task-${task.id}`] = el; }}>
                                 <AssigneeTag
                                   assignee={task.assignee}
                                   onClick={(e) => {
@@ -769,6 +780,7 @@ export default function TaskBoardPage() {
                                     current={task.assignee}
                                     onSelect={(val) => updateAssignee(task.id, val)}
                                     onClose={() => setAssigneePickerOpen(null)}
+                                    anchorRef={{ current: assigneeAnchorRefs.current[`task-${task.id}`] }}
                                   />
                                 )}
                               </div>
@@ -881,7 +893,7 @@ export default function TaskBoardPage() {
                                     )}
 
                                     {/* Subtask assignee */}
-                                    <div className="relative flex-shrink-0">
+                                    <div className="relative flex-shrink-0" ref={el => { assigneeAnchorRefs.current[pickerKey] = el; }}>
                                       <AssigneeTag
                                         assignee={sub.assignee}
                                         size="small"
@@ -895,6 +907,7 @@ export default function TaskBoardPage() {
                                           current={sub.assignee}
                                           onSelect={(val) => updateSubtaskAssignee(task.id, sub.id, val)}
                                           onClose={() => setAssigneePickerOpen(null)}
+                                          anchorRef={{ current: assigneeAnchorRefs.current[pickerKey] }}
                                         />
                                       )}
                                     </div>
