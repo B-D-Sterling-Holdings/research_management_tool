@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Search, Eye, FolderOpen, LogOut, ClipboardList,
   ChevronDown, Shield, BarChart3, PieChart, FileText, DollarSign, Link2, Users,
@@ -17,11 +17,10 @@ const NAV_GROUPS = [
     items: [
       { href: '/holdings', label: 'Holdings', icon: Briefcase },
       { href: '/allocation', label: 'Allocation', icon: PieChart },
-      { href: '/tasks', label: 'Task Board', icon: ClipboardList },
       { href: '/relationships', label: 'Relationships', icon: Users },
     ],
     // Active if any child route is active
-    matchPaths: ['/holdings', '/allocation', '/tasks', '/relationships'],
+    matchPaths: ['/holdings', '/allocation', '/relationships'],
   },
   {
     label: 'Equity Research',
@@ -163,8 +162,28 @@ export default function Navbar() {
         </Link>
 
         <div className="flex items-center gap-1">
-          {NAV_GROUPS.map(group => (
-            <NavDropdown key={group.label} group={group} pathname={pathname} searchParams={searchParams} isDark={isDark} />
+          {NAV_GROUPS.map((group, i) => (
+            <React.Fragment key={group.label}>
+              <NavDropdown group={group} pathname={pathname} searchParams={searchParams} isDark={isDark} />
+              {i === 0 && (
+                <Link
+                  href="/tasks"
+                  className={`
+                    relative flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 no-underline
+                    ${pathname === '/tasks' || pathname.startsWith('/tasks/')
+                      ? isDark ? 'text-emerald-400 bg-emerald-500/15' : 'text-emerald-700 bg-emerald-50'
+                      : isDark ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                    }
+                  `}
+                >
+                  <ClipboardList size={15} />
+                  Task Board
+                  {(pathname === '/tasks' || pathname.startsWith('/tasks/')) && (
+                    <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'}`} />
+                  )}
+                </Link>
+              )}
+            </React.Fragment>
           ))}
 
           <button
