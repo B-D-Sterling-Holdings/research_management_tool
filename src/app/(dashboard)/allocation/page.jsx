@@ -11,7 +11,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
-import { BarChart3, Settings, Target, Zap, X, SlidersHorizontal } from 'lucide-react';
+import { BarChart3, Settings, Target, Zap, X, SlidersHorizontal, PieChart, ArrowRight, RotateCcw } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -69,6 +69,200 @@ const parseNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatCurrency = (value) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+
+const createRebalanceRow = (overrides = {}) => ({
+  id: crypto.randomUUID(),
+  ticker: '',
+  currentValue: '',
+  targetWeight: '',
+  ...overrides,
+});
+
+const defaultRebalanceTickers = ['MA', 'AMZN', 'GOOGL', 'UBER', 'ASML', 'HLT', 'BKNG', 'AAAU', 'UNH', 'ADBE', 'META', 'NFLX'];
+
+const createDefaultRebalanceHoldings = () => defaultRebalanceTickers.map((ticker) => createRebalanceRow({ ticker }));
+
+const rebalanceExecutionPlan = ({
+  currentValues,
+  targetWeights,
+  cash,
+  transactionCostPct = 0,
+  minInstructionThreshold = 1e-6,
+}) => {
+  const fee = Number(transactionCostPct);
+  if (fee < 0 || fee >= 1) {
+    throw new Error('transaction_cost_pct must be in [0, 1).');
+  }
+
+  const tickers = Array.from(
+    new Set([...Object.keys(currentValues), ...Object.keys(targetWeights)])
+  ).sort();
+  const effectiveCash = Number.isFinite(cash) ? cash : Number(currentValues.CASH || 0);
+
+  const current = {};
+  tickers.forEach((ticker) => {
+    if (ticker === 'CASH') return;
+    current[ticker] = Number(currentValues[ticker] || 0);
+  });
+
+  const target = {};
+  tickers.forEach((ticker) => {
+    target[ticker] = Number(targetWeights[ticker] || 0);
+  });
+
+  const targetSum = Object.values(target).reduce((sum, value) => sum + value, 0);
+  if (Math.abs(targetSum - 1) > 1e-6) {
+    throw new Error(`Target weights must sum to 1.0; got ${targetSum.toFixed(6)}`);
+  }
+
+  const startingTotal = Object.values(current).reduce((sum, value) => sum + value, 0) + effectiveCash;
+  const targetDollars = {};
+  tickers.forEach((ticker) => {
+    targetDollars[ticker] = target[ticker] * startingTotal;
+  });
+  const targetCash = targetDollars.CASH || 0;
+
+  const deltas = {};
+  tickers.forEach((ticker) => {
+    if (ticker === 'CASH') return;
+    deltas[ticker] = (targetDollars[ticker] || 0) - (current[ticker] || 0);
+  });
+
+  const toBuy = {};
+  const toSell = {};
+  Object.entries(deltas).forEach(([ticker, delta]) => {
+    if (delta > minInstructionThreshold) toBuy[ticker] = delta;
+    if (delta < -minInstructionThreshold) toSell[ticker] = -delta;
+  });
+
+  const steps = [];
+  const buyUsed = {};
+  const sellUsed = {};
+  Object.keys(deltas).forEach((ticker) => {
+    buyUsed[ticker] = 0;
+    sellUsed[ticker] = 0;
+  });
+
+  const remainingBuyTotal = () => Object.values(toBuy).reduce((sum, value) => sum + value, 0);
+
+  let cashOnHand = effectiveCash;
+
+  if (remainingBuyTotal() > minInstructionThreshold && cashOnHand > minInstructionThreshold) {
+    Object.keys(toBuy)
+      .sort((a, b) => toBuy[b] - toBuy[a])
+      .forEach((ticker) => {
+        if (toBuy[ticker] <= minInstructionThreshold || cashOnHand <= minInstructionThreshold) return;
+        const needed = toBuy[ticker] * (1 + fee);
+        const useOutlay = Math.min(needed, cashOnHand);
+        const netIncrease = useOutlay / (1 + fee);
+        if (netIncrease <= minInstructionThreshold) return;
+        toBuy[ticker] -= netIncrease;
+        buyUsed[ticker] += netIncrease;
+        cashOnHand -= useOutlay;
+        steps.push({ type: 'buy', text: `Buy ${formatCurrency(netIncrease)} of ${ticker}.` });
+      });
+  }
+
+  const deltaCash = targetCash - cashOnHand;
+  let proceedsNeededForBuys = 0;
+  if (remainingBuyTotal() > minInstructionThreshold) {
+    const totalBuyNeeded = remainingBuyTotal();
+    proceedsNeededForBuys = totalBuyNeeded * (1 + fee);
+  }
+
+  let totalCashProceedsNeeded = Math.max(0, proceedsNeededForBuys + Math.max(0, deltaCash));
+
+  if (totalCashProceedsNeeded > minInstructionThreshold) {
+    Object.keys(toSell)
+      .sort((a, b) => toSell[b] - toSell[a])
+      .forEach((ticker) => {
+        if (totalCashProceedsNeeded <= minInstructionThreshold) return;
+        if (toSell[ticker] <= minInstructionThreshold) return;
+        const maxSellNotional = toSell[ticker];
+        const maxCashFromTicker = maxSellNotional * (1 - fee);
+        const sellCash = Math.min(maxCashFromTicker, totalCashProceedsNeeded);
+        const sellNotional = sellCash / (1 - fee);
+
+        toSell[ticker] -= sellNotional;
+        sellUsed[ticker] += sellNotional;
+        cashOnHand += sellCash;
+        totalCashProceedsNeeded -= sellCash;
+        steps.push({ type: 'sell', text: `Sell ${formatCurrency(sellNotional)} of ${ticker}.` });
+
+        if (remainingBuyTotal() > minInstructionThreshold && cashOnHand > minInstructionThreshold) {
+          Object.keys(toBuy)
+            .sort((a, b) => toBuy[b] - toBuy[a])
+            .forEach((buyTicker) => {
+              if (toBuy[buyTicker] <= minInstructionThreshold || cashOnHand <= minInstructionThreshold) return;
+              const neededOutlay = toBuy[buyTicker] * (1 + fee);
+              const useOutlay = Math.min(neededOutlay, cashOnHand);
+              const netIncrease = useOutlay / (1 + fee);
+              if (netIncrease <= minInstructionThreshold) return;
+              toBuy[buyTicker] -= netIncrease;
+              buyUsed[buyTicker] += netIncrease;
+              cashOnHand -= useOutlay;
+              steps.push({ type: 'buy', text: `Buy ${formatCurrency(netIncrease)} of ${buyTicker}.` });
+            });
+        }
+      });
+  }
+
+  if (remainingBuyTotal() > minInstructionThreshold) {
+    steps.push({ type: 'note', text: 'Warning: Not enough funding from overweights or CASH to complete all buys.' });
+  }
+
+  const deltaCashFinal = targetCash - cashOnHand;
+  if (deltaCashFinal < -minInstructionThreshold && remainingBuyTotal() <= minInstructionThreshold) {
+    steps.push({
+      type: 'note',
+      text: `Note: Ending CASH ${formatCurrency(cashOnHand)} exceeds target by ${formatCurrency(-deltaCashFinal)}. (Small drift retained.)`,
+    });
+  }
+
+  const finalValues = {};
+  Object.keys(deltas).forEach((ticker) => {
+    finalValues[ticker] = (current[ticker] || 0) + (buyUsed[ticker] || 0) - (sellUsed[ticker] || 0);
+  });
+  finalValues.CASH = cashOnHand;
+
+  const finalTotal = Object.values(finalValues).reduce((sum, value) => sum + value, 0);
+  const finalWeights = {};
+  Object.entries(finalValues).forEach(([ticker, value]) => {
+    finalWeights[ticker] = finalTotal > 0 ? value / finalTotal : 0;
+  });
+
+  const buySummary = {};
+  const sellSummary = {};
+  Object.entries(buyUsed).forEach(([ticker, value]) => {
+    if (value > minInstructionThreshold) buySummary[ticker] = value;
+  });
+  Object.entries(sellUsed).forEach(([ticker, value]) => {
+    if (value > minInstructionThreshold) sellSummary[ticker] = value;
+  });
+
+  const consolidatedSteps = [
+    ...Object.entries(sellSummary)
+      .sort(([, a], [, b]) => b - a)
+      .map(([ticker, value]) => ({ type: 'sell', text: `Sell ${formatCurrency(value)} of ${ticker}.` })),
+    ...Object.entries(buySummary)
+      .sort(([, a], [, b]) => b - a)
+      .map(([ticker, value]) => ({ type: 'buy', text: `Buy ${formatCurrency(value)} of ${ticker}.` })),
+    ...steps.filter((step) => step.type === 'note'),
+  ];
+
+  return {
+    steps: consolidatedSteps,
+    buyDollars: buySummary,
+    sellDollars: sellSummary,
+    currentValues: current,
+    startingTotal,
+    finalValues,
+    finalWeights,
+  };
+};
+
 const colorScale = [
   [215, 25, 28],
   [253, 174, 97],
@@ -104,8 +298,18 @@ export default function AllocationPage() {
   const [simulating, setSimulating] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState('optimizer');
+  const [rbHoldings, setRbHoldings] = useState([]);
+  const [rbCash, setRbCash] = useState('');
+  const [rbTargetCashPercent, setRbTargetCashPercent] = useState('0');
+  const [rbTransactionCostPct, setRbTransactionCostPct] = useState('0');
+  const [rbPlan, setRbPlan] = useState(null);
+  const [rbError, setRbError] = useState('');
+  const [rbTaxInputs, setRbTaxInputs] = useState({});
+  const [rbLoadingPortfolio, setRbLoadingPortfolio] = useState(false);
   const saveTimer = useRef(null);
   const tableRef = useRef(null);
+  const rbTableRef = useRef(null);
 
   const handleColumnTab = (e, colName, rowIdx) => {
     if (e.key !== 'Tab') return;
@@ -113,6 +317,15 @@ export default function AllocationPage() {
     if (nextIdx < 0 || nextIdx >= allocations.length) return;
     e.preventDefault();
     const next = tableRef.current?.querySelector(`[data-col="${colName}"][data-row="${nextIdx}"]`);
+    if (next) next.focus();
+  };
+
+  const handleRbColumnTab = (e, colName, rowIdx) => {
+    if (e.key !== 'Tab') return;
+    const nextIdx = e.shiftKey ? rowIdx - 1 : rowIdx + 1;
+    if (nextIdx < 0 || nextIdx >= rbHoldings.length) return;
+    e.preventDefault();
+    const next = rbTableRef.current?.querySelector(`[data-col="${colName}"][data-row="${nextIdx}"]`);
     if (next) next.focus();
   };
 
@@ -139,6 +352,55 @@ export default function AllocationPage() {
       }
     })();
   }, []);
+
+  // Load portfolio holdings into rebalancer
+  const loadPortfolioIntoRebalancer = useCallback(async () => {
+    setRbLoadingPortfolio(true);
+    setRbPlan(null);
+    setRbError('');
+    try {
+      const portfolioRes = await fetch('/api/portfolio');
+      const portfolio = await portfolioRes.json();
+      const holdings = portfolio.holdings || [];
+      const cashVal = portfolio.cash || 0;
+
+      if (holdings.length === 0) {
+        setRbHoldings(createDefaultRebalanceHoldings());
+        setRbCash('');
+        return;
+      }
+
+      const tickers = holdings.map((h) => h.ticker).join(',');
+      const quotesRes = await fetch(`/api/quotes?tickers=${tickers}`);
+      const quotesData = await quotesRes.json();
+      const quotes = quotesData.quotes || quotesData;
+
+      const rows = holdings.map((h) => {
+        const quote = quotes[h.ticker];
+        const price = quote?.price || 0;
+        const value = h.shares * price;
+        return createRebalanceRow({
+          ticker: h.ticker,
+          currentValue: value > 0 ? value.toFixed(2) : '',
+          targetWeight: '',
+        });
+      });
+
+      setRbHoldings(rows);
+      setRbCash(cashVal > 0 ? cashVal.toFixed(2) : '');
+    } catch (err) {
+      console.error('Failed to load portfolio for rebalancer:', err);
+      setRbHoldings(createDefaultRebalanceHoldings());
+      setRbCash('');
+    } finally {
+      setRbLoadingPortfolio(false);
+    }
+  }, []);
+
+  // Load portfolio into rebalancer on mount
+  useEffect(() => {
+    loadPortfolioIntoRebalancer();
+  }, [loadPortfolioIntoRebalancer]);
 
   // Auto-save with debounce whenever config changes
   const saveConfig = useCallback((config) => {
@@ -229,6 +491,120 @@ export default function AllocationPage() {
 
   const removeAllocation = (id) => {
     setAllocations((prev) => prev.filter((row) => row.id !== id));
+  };
+
+  // --- Rebalancer functions ---
+  const rbAumValue = rbPlan?.startingTotal || 0;
+
+  const rbTaxBreakdown = useMemo(() => {
+    if (!rbPlan) return { rows: [], totalTax: 0, totalGains: 0 };
+    const rows = Object.entries(rbPlan.sellDollars).map(([ticker, plannedSold]) => {
+      const inputs = rbTaxInputs[ticker] || {};
+      const initialValue = parseNumber(inputs.initialValue);
+      const finalValue = parseNumber(inputs.finalValue);
+      const amountSoldInput = inputs.amountSold === '' || inputs.amountSold === undefined ? plannedSold : inputs.amountSold;
+      const amountSold = parseNumber(amountSoldInput);
+      const taxRate = parseNumber(inputs.taxRate);
+      const gainFraction = finalValue ? (finalValue - initialValue) / finalValue : 0;
+      const gainRealized = amountSold * gainFraction;
+      const taxOwed = gainRealized * (taxRate / 100);
+      return { ticker, initialValue, finalValue, amountSold, taxRate, gainRealized, taxOwed };
+    });
+    const totalTax = rows.reduce((sum, row) => sum + row.taxOwed, 0);
+    const totalGains = rows.reduce((sum, row) => sum + row.gainRealized, 0);
+    return { rows, totalTax, totalGains };
+  }, [rbPlan, rbTaxInputs]);
+
+  const rbTaxOwedPctOfAum = rbAumValue ? (rbTaxBreakdown.totalTax / rbAumValue) * 100 : 0;
+
+  const rbTotalTargetPercent = useMemo(() => {
+    const holdingsTotal = rbHoldings.reduce((sum, row) => sum + parseNumber(row.targetWeight), 0);
+    return holdingsTotal + parseNumber(rbTargetCashPercent);
+  }, [rbHoldings, rbTargetCashPercent]);
+
+  useEffect(() => {
+    if (!rbPlan) { setRbTaxInputs({}); return; }
+    setRbTaxInputs((prev) => {
+      const next = {};
+      Object.entries(rbPlan.sellDollars).forEach(([ticker, value]) => {
+        const existing = prev[ticker] || {};
+        const currentValue = rbPlan.currentValues?.[ticker];
+        next[ticker] = {
+          initialValue: existing.initialValue ?? '',
+          finalValue: existing.finalValue ?? (Number.isFinite(currentValue) ? currentValue.toFixed(2) : ''),
+          amountSold: existing.amountSold ?? value.toFixed(2),
+          taxRate: existing.taxRate ?? '',
+        };
+      });
+      return next;
+    });
+  }, [rbPlan]);
+
+  const updateRbTaxInput = (ticker, field, value) => {
+    setRbTaxInputs((prev) => {
+      const current = prev[ticker] || {};
+      const updated = { ...current, [field]: value };
+      const finalValue = parseNumber(field === 'finalValue' ? value : updated.finalValue);
+      const amountSold = parseNumber(field === 'amountSold' ? value : updated.amountSold);
+      if (finalValue > 0 && amountSold > finalValue) updated.amountSold = `${finalValue}`;
+      return { ...prev, [ticker]: updated };
+    });
+  };
+
+  const updateRbHolding = (id, field, value) => {
+    setRbHoldings((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+  };
+
+  const removeRbHolding = (id) => {
+    setRbHoldings((prev) => prev.filter((row) => row.id !== id));
+  };
+
+  const addRbHolding = () => {
+    setRbHoldings((prev) => [...prev, createRebalanceRow()]);
+  };
+
+  const handleGenerateRbPlan = () => {
+    setRbError('');
+    setRbPlan(null);
+    const filtered = rbHoldings.filter((row) => row.ticker.trim() || row.currentValue || row.targetWeight);
+    if (filtered.length === 0) { setRbError('Add at least one holding to generate a plan.'); return; }
+    const currentValues = {};
+    const targetWeights = {};
+    const problems = [];
+    filtered.forEach((row, index) => {
+      const ticker = row.ticker.trim().toUpperCase();
+      const currentValue = parseNumber(row.currentValue);
+      const targetPercent = parseNumber(row.targetWeight);
+      if (!ticker) problems.push(`Row ${index + 1}: add a ticker.`);
+      if (currentValue < 0) problems.push(`Row ${index + 1}: current value must be positive.`);
+      if (targetPercent < 0) problems.push(`Row ${index + 1}: target percent must be positive.`);
+      if (ticker) {
+        currentValues[ticker] = (currentValues[ticker] || 0) + currentValue;
+        targetWeights[ticker] = (targetWeights[ticker] || 0) + targetPercent / 100;
+      }
+    });
+    const cashValue = parseNumber(rbCash);
+    const cashTarget = parseNumber(rbTargetCashPercent) / 100;
+    if (cashValue < 0) problems.push('Cash balance must be positive.');
+    if (cashTarget < 0) problems.push('Target cash percent must be positive.');
+    if (cashTarget > 0) targetWeights.CASH = cashTarget;
+    if (problems.length > 0) { setRbError(problems.join(' ')); return; }
+    const totalPercent = rbTotalTargetPercent;
+    if (Math.abs(totalPercent - 100) > 0.01) {
+      setRbError(`Target percentages must sum to 100%. Current total: ${totalPercent.toFixed(2)}%.`);
+      return;
+    }
+    try {
+      const result = rebalanceExecutionPlan({
+        currentValues,
+        targetWeights,
+        cash: cashValue,
+        transactionCostPct: parseNumber(rbTransactionCostPct) / 100,
+      });
+      setRbPlan(result);
+    } catch (err) {
+      setRbError(err.message);
+    }
   };
 
   const runMonteCarloSimulation = () => {
@@ -650,7 +1026,31 @@ export default function AllocationPage() {
 
       <div className="animate-fade-in-up">
         <div className="flex items-center justify-between mb-6 animate-fade-in-up">
-          <h1 className="text-3xl font-bold text-gray-900">Project Optimum</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Allocation</h1>
+        </div>
+
+        {/* Tab Bar */}
+        <div className="flex items-center gap-1 mb-8 bg-gray-100/80 rounded-xl p-1 w-fit animate-fade-in-up stagger-2">
+          {[
+            { key: 'optimizer', label: 'Optimizer' },
+            { key: 'rebalancer', label: 'Rebalancer' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveSubTab(tab.key)}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                activeSubTab === tab.key
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeSubTab === 'optimizer' && (<>
+        <div className="flex items-center justify-end mb-6 animate-fade-in-up">
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 px-4 py-2 rounded-xl transition-colors"
@@ -889,6 +1289,243 @@ export default function AllocationPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+        </>)}
+
+        {activeSubTab === 'rebalancer' && (
+          <div className="animate-fade-in-up">
+            <div className="bg-gray-50 border border-gray-200 rounded-3xl p-8">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+                    <PieChart className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-gray-900">Portfolio Rebalancer</h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Current values loaded from your holdings. Edit freely, then reset to sync again.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadPortfolioIntoRebalancer}
+                    disabled={rbLoadingPortfolio}
+                    className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} className={rbLoadingPortfolio ? 'animate-spin' : ''} />
+                    Reset
+                  </button>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Cash Balance ($)</label>
+                    <input type="number" min="0" step="0.01" value={rbCash} onChange={(e) => setRbCash(e.target.value)} className="w-48 border border-gray-300 rounded-xl px-4 py-2.5 bg-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Cash (%)</label>
+                    <input type="number" min="0" step="0.01" value={rbTargetCashPercent} onChange={(e) => setRbTargetCashPercent(e.target.value)} className="w-40 border border-gray-300 rounded-xl px-4 py-2.5 bg-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Transaction Cost (%)</label>
+                    <input type="number" min="0" step="0.01" value={rbTransactionCostPct} onChange={(e) => setRbTransactionCostPct(e.target.value)} className="w-40 border border-gray-300 rounded-xl px-4 py-2.5 bg-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0.00" />
+                  </div>
+                </div>
+              </div>
+
+              {rbLoadingPortfolio ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-5 h-5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mr-3" />
+                  <span className="text-sm text-gray-500">Loading portfolio...</span>
+                </div>
+              ) : (<>
+              <div ref={rbTableRef} className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-gray-100 text-gray-600">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Ticker</th>
+                      <th className="px-4 py-3 font-semibold">Current Value ($)</th>
+                      <th className="px-4 py-3 font-semibold">Target %</th>
+                      <th className="px-4 py-3 font-semibold"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rbHoldings.map((row, idx) => (
+                      <tr key={row.id} className="border-t border-gray-200">
+                        <td className="px-4 py-3">
+                          <input type="text" value={row.ticker} onChange={(e) => updateRbHolding(row.id, 'ticker', e.target.value)} className="w-32 border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="AAPL" />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input type="number" min="0" step="0.01" value={row.currentValue} onChange={(e) => updateRbHolding(row.id, 'currentValue', e.target.value)} className="w-48 border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0.00" />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input type="number" min="0" step="0.01" data-col="rbTargetWeight" data-row={idx} value={row.targetWeight} onChange={(e) => updateRbHolding(row.id, 'targetWeight', e.target.value)} onKeyDown={(e) => handleRbColumnTab(e, 'rbTargetWeight', idx)} className="w-32 border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0" />
+                        </td>
+                        <td className="px-4 py-3">
+                          {rbHoldings.length > 1 && (
+                            <button type="button" onClick={() => removeRbHolding(row.id)} className="text-sm font-semibold text-red-600 hover:text-red-700">Remove</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-6">
+                <button type="button" onClick={addRbHolding} className="inline-flex items-center justify-center px-5 py-2.5 border-2 border-emerald-600 text-emerald-700 rounded-xl font-semibold hover:bg-emerald-50 transition-colors">
+                  Add Holding
+                </button>
+                <div className="text-sm text-gray-500">
+                  Target total: <span className="font-semibold text-gray-900">{rbTotalTargetPercent.toFixed(2)}%</span>
+                </div>
+                <button type="button" onClick={handleGenerateRbPlan} className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors">
+                  Generate Rebalance Plan
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {rbError && <p className="mt-4 text-sm text-red-600 font-semibold">{rbError}</p>}
+
+              {rbPlan && (
+                <div className="mt-10 space-y-8">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-3">Step-by-Step Plan</h3>
+                    <ol className="space-y-2 text-gray-700">
+                      {rbPlan.steps.length > 0 ? (
+                        rbPlan.steps.map((step, index) => {
+                          const toneStyles = {
+                            buy: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+                            sell: 'bg-rose-50 border-rose-200 text-rose-900',
+                            note: 'bg-gray-50 border-gray-200 text-gray-600',
+                          };
+                          const toneClass = toneStyles[step.type] || toneStyles.note;
+                          return (
+                            <li key={`${step.text}-${index}`} className={`border rounded-xl p-4 ${toneClass}`}>{step.text}</li>
+                          );
+                        })
+                      ) : (
+                        <li className="text-gray-500">No trades required. Portfolio is already balanced.</li>
+                      )}
+                    </ol>
+                  </div>
+
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                      <h4 className="font-semibold text-gray-900 mb-3">Buy Summary</h4>
+                      {Object.keys(rbPlan.buyDollars).length === 0 ? (
+                        <p className="text-sm text-gray-500">No buys required.</p>
+                      ) : (
+                        <ul className="space-y-2 text-sm text-gray-700">
+                          {Object.entries(rbPlan.buyDollars).map(([ticker, value]) => (
+                            <li key={ticker} className="flex items-center justify-between">
+                              <span>{ticker}</span>
+                              <span className="font-semibold text-emerald-600">{formatCurrency(value)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                      <h4 className="font-semibold text-gray-900 mb-3">Sell Summary</h4>
+                      {Object.keys(rbPlan.sellDollars).length === 0 ? (
+                        <p className="text-sm text-gray-500">No sells required.</p>
+                      ) : (
+                        <ul className="space-y-2 text-sm text-gray-700">
+                          {Object.entries(rbPlan.sellDollars).map(([ticker, value]) => (
+                            <li key={ticker} className="flex items-center justify-between">
+                              <span>{ticker}</span>
+                              <span className="font-semibold text-rose-600">{formatCurrency(value)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                    <h4 className="font-semibold text-gray-900 mb-3">Projected Allocation</h4>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {Object.entries(rbPlan.finalValues)
+                        .sort(([tickerA], [tickerB]) => rbPlan.finalWeights[tickerB] - rbPlan.finalWeights[tickerA])
+                        .map(([ticker, value]) => (
+                          <div key={ticker} className="flex items-center justify-between text-sm text-gray-700 bg-gray-50 rounded-xl px-4 py-3">
+                            <span className="font-medium">{ticker}</span>
+                            <span className="font-semibold">{formatCurrency(value)} ({(rbPlan.finalWeights[ticker] * 100).toFixed(2)}%)</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                    <h4 className="font-semibold text-gray-900 mb-3">Capital Gains Tax Impact</h4>
+                    <p className="text-sm text-gray-500 mb-4">Enter the cost basis and current value for each sold position to estimate tax owed.</p>
+                    {rbTaxBreakdown.rows.length === 0 ? (
+                      <p className="text-sm text-gray-500">No sells required, so no tax impact.</p>
+                    ) : (
+                      <div className="grid gap-4">
+                        {rbTaxBreakdown.rows.map((row) => (
+                          <div key={row.ticker} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                              <h5 className="font-semibold text-gray-900">{row.ticker}</h5>
+                              <span className="text-xs text-gray-500">Planned sell: {formatCurrency(rbPlan.sellDollars[row.ticker])}</span>
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Initial Value ($)</label>
+                                <input type="number" min="0" step="0.01" value={rbTaxInputs[row.ticker]?.initialValue ?? ''} onChange={(e) => updateRbTaxInput(row.ticker, 'initialValue', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0.00" />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Final/Current Value ($)</label>
+                                <input type="number" min="0" step="0.01" value={rbTaxInputs[row.ticker]?.finalValue ?? ''} onChange={(e) => updateRbTaxInput(row.ticker, 'finalValue', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0.00" />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Amount Sold ($)</label>
+                                <input type="number" min="0" step="0.01" value={rbTaxInputs[row.ticker]?.amountSold ?? ''} onChange={(e) => updateRbTaxInput(row.ticker, 'amountSold', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0.00" />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Capital Gains Tax Rate (%)</label>
+                                <input type="number" min="0" step="0.01" value={rbTaxInputs[row.ticker]?.taxRate ?? ''} onChange={(e) => updateRbTaxInput(row.ticker, 'taxRate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all" placeholder="0" />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2 text-sm text-gray-700">
+                              <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3">
+                                <span>Gain Realized</span>
+                                <span className="font-semibold">{formatCurrency(row.gainRealized)}</span>
+                              </div>
+                              <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3">
+                                <span>Tax Owed</span>
+                                <span className="font-semibold text-rose-600">{formatCurrency(row.taxOwed)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mt-5 grid gap-3 md:grid-cols-2 text-sm text-gray-700">
+                      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                        <span>Total Capital Gains</span>
+                        <span className="font-semibold">{formatCurrency(rbTaxBreakdown.totalGains)}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                        <span>Total Estimated Tax Owed</span>
+                        <span className="font-semibold text-rose-600">{formatCurrency(rbTaxBreakdown.totalTax)}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                        <span>AUM (cash + positions)</span>
+                        <span className="font-semibold">{formatCurrency(rbAumValue)}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                        <span>Tax as % of AUM</span>
+                        <span className="font-semibold">{rbTaxOwedPctOfAum.toFixed(2)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              </>)}
             </div>
           </div>
         )}
