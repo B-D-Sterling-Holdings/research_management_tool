@@ -236,6 +236,7 @@ export default function TaskBoardPage() {
   const [editingSubTitle, setEditingSubTitle] = useState('');
   const [activeId, setActiveId] = useState(null);
   const [savedAssignees, setSavedAssignees] = useState([]);
+  const [capacityFlash, setCapacityFlash] = useState(null); // section key that's full
   const tasksSnapshot = useRef(null);
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
@@ -322,6 +323,12 @@ export default function TaskBoardPage() {
       subEditRef.current.select();
     }
   }, [editingSubId]);
+
+  useEffect(() => {
+    if (!capacityFlash) return;
+    const t = setTimeout(() => setCapacityFlash(null), 800);
+    return () => clearTimeout(t);
+  }, [capacityFlash]);
 
   const tasksByPriority = (key) => tasks.filter(t => t.priority === key && !t.done);
   const completedTasks = tasks.filter(t => t.done);
@@ -580,6 +587,7 @@ export default function TaskBoardPage() {
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
     tasksSnapshot.current = tasks;
+    setCapacityFlash(null);
   };
 
   // onDragOver: ONLY handle cross-container moves (changing priority).
@@ -600,10 +608,13 @@ export default function TaskBoardPage() {
       const activeTask = prev.find(t => t.id === active.id);
       if (!activeTask) return prev;
 
-      // Check capacity
+      // Check capacity (exclude the dragged task itself in case handleDragOver fires multiple times)
       const section = PRIORITY_SECTIONS.find(s => s.key === overPriority);
-      const targetCount = prev.filter(t => t.priority === overPriority).length;
-      if (section?.maxTasks && targetCount >= section.maxTasks) return prev;
+      const targetCount = prev.filter(t => t.priority === overPriority && t.id !== active.id).length;
+      if (section?.maxTasks && targetCount >= section.maxTasks) {
+        setCapacityFlash(overPriority);
+        return prev;
+      }
 
       // Determine insert index
       const overIsSection = typeof over.id === 'string' && over.id.startsWith('section-');
@@ -770,7 +781,7 @@ export default function TaskBoardPage() {
             const taskIds = sectionTasks.map(t => t.id);
 
             return (
-              <div key={key} className="bg-white rounded-3xl border border-gray-200 p-6 shadow-sm animate-fade-in-up" style={{ animationDelay: `${0.06 + sectionIdx * 0.08}s` }}>
+              <div key={key} className={`rounded-3xl border p-6 shadow-sm animate-fade-in-up transition-all duration-300 ${capacityFlash === key ? 'bg-red-50 border-red-300 ring-2 ring-red-200' : 'bg-white border-gray-200'}`} style={{ animationDelay: `${0.06 + sectionIdx * 0.08}s` }}>
                 {/* Section Header */}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
