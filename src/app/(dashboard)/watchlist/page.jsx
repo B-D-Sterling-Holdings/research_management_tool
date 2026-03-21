@@ -882,13 +882,20 @@ function WatchlistSelector({ watchlists, activeId, onSwitch, onCreate, onRename,
             {watchlists.map(wl => (
               <div
                 key={wl.id}
-                className={`flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors ${
+                role="button"
+                onClick={() => {
+                  if (renamingId === wl.id || confirmDeleteId === wl.id) return;
+                  onSwitch(wl.id);
+                  setOpen(false);
+                }}
+                className={`flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors cursor-pointer ${
                   wl.id === activeId ? 'bg-emerald-50/60' : ''
                 }`}
               >
                 {renamingId === wl.id ? (
                   <form
                     onSubmit={(e) => { e.preventDefault(); handleRename(wl.id); }}
+                    onClick={(e) => e.stopPropagation()}
                     className="flex-1 flex items-center gap-1.5"
                   >
                     <input
@@ -903,7 +910,7 @@ function WatchlistSelector({ watchlists, activeId, onSwitch, onCreate, onRename,
                     </button>
                   </form>
                 ) : confirmDeleteId === wl.id ? (
-                  <div className="flex-1 flex items-center justify-between">
+                  <div className="flex-1 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                     <span className="text-xs text-red-600 font-medium">Delete &ldquo;{wl.name}&rdquo;?</span>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -922,18 +929,15 @@ function WatchlistSelector({ watchlists, activeId, onSwitch, onCreate, onRename,
                   </div>
                 ) : (
                   <>
-                    <button
-                      onClick={() => { onSwitch(wl.id); setOpen(false); }}
-                      className="flex-1 text-left text-sm text-gray-800 font-medium truncate"
-                    >
+                    <span className="flex-1 text-left text-sm text-gray-800 font-medium truncate">
                       {wl.name}
                       <span className="text-xs text-gray-400 ml-2">
                         {wl.stocks.length} stock{wl.stocks.length !== 1 ? 's' : ''}
                       </span>
-                    </button>
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                    </span>
+                    <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setRenamingId(wl.id); setRenameValue(wl.name); }}
+                        onClick={() => { setRenamingId(wl.id); setRenameValue(wl.name); }}
                         className="text-gray-300 hover:text-gray-500 p-1 rounded transition-colors"
                         title="Rename"
                       >
@@ -941,7 +945,7 @@ function WatchlistSelector({ watchlists, activeId, onSwitch, onCreate, onRename,
                       </button>
                       {watchlists.length > 1 && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(wl.id); }}
+                          onClick={() => setConfirmDeleteId(wl.id)}
                           className="text-gray-300 hover:text-red-400 p-1 rounded transition-colors"
                           title="Delete"
                         >
