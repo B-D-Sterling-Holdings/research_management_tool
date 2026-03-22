@@ -1228,8 +1228,8 @@ export default function HoldingsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100">
-                        {['Symbol', 'Sector', 'Industry', 'Mkt Value', 'Mkt Cap', 'P/E', 'Fwd P/E', 'P/B', 'P/S', 'EV/EBITDA', 'EV/REV', 'Beta'].map(col => (
-                          <th key={col} className="text-right py-3 px-2 text-[0.65rem] text-gray-400 uppercase tracking-wider font-semibold first:text-left whitespace-nowrap">{col}</th>
+                        {['Symbol', 'Sector', 'Industry', 'Mkt Value', 'Mkt Cap', 'P/E', 'Fwd P/E', 'P/S', 'EV/EBITDA', 'EV/REV', 'Beta'].map((col, i) => (
+                          <th key={col} className={`py-3 px-2 text-[0.65rem] text-gray-400 uppercase tracking-wider font-semibold whitespace-nowrap ${i < 3 ? 'text-left' : 'text-center'}`}>{col}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1254,17 +1254,16 @@ export default function HoldingsPage() {
                           return (
                             <tr key={p.ticker} className="border-b border-gray-50 hover:bg-emerald-50/30 transition-colors duration-150">
                               <td className="py-3 px-2"><span className="bg-emerald-50 text-emerald-700 font-bold text-xs px-2 py-0.5 rounded-lg">{p.ticker}</span></td>
-                              <td className="text-right py-3 px-2 text-gray-500 text-xs">{f.sector ? getSectorLabel(f.sector) : '—'}</td>
-                              <td className="text-right py-3 px-2 text-gray-500 text-xs whitespace-nowrap">{f.industry || '—'}</td>
-                              <td className="text-right py-3 px-2 text-gray-900 font-medium">{formatMoney(p.value)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.marketCap)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.pe)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.forwardPe)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.pb)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.ps)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.evEbitda)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.evRevenue)}</td>
-                              <td className="text-right py-3 px-2 text-gray-700">{fmtVal(f.beta)}</td>
+                              <td className="text-left py-3 px-2 text-gray-500 text-xs">{f.sector ? getSectorLabel(f.sector) : '—'}</td>
+                              <td className="text-left py-3 px-2 text-gray-500 text-xs whitespace-nowrap">{f.industry || '—'}</td>
+                              <td className="text-center py-3 px-2 text-gray-900 font-medium">{formatMoney(p.value)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.marketCap)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.pe)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.forwardPe)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.ps)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.evEbitda)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.evRevenue)}</td>
+                              <td className="text-center py-3 px-2 text-gray-700">{fmtVal(f.beta)}</td>
                             </tr>
                           );
                         })}
