@@ -542,7 +542,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
         {/* Portfolio Summary */}
-        <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm transition-all duration-300 hover:border-emerald-200 hover:shadow-emerald-100/50 hover:shadow-lg">
           <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">Portfolio</h3>
           {holdingsData ? (() => {
             const top7 = holdingsData.pieItems.slice(0, 7);
@@ -621,7 +621,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Today's Movers */}
-        <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm transition-all duration-300 hover:border-emerald-200 hover:shadow-emerald-100/50 hover:shadow-lg">
           <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">Today&apos;s Movers</h3>
           {holdingsData ? (
             <div className="space-y-4">
@@ -703,7 +703,7 @@ export default function DashboardPage() {
         {/* Tasks */}
         {/* Tasks — wrapper is relative with no content height so Portfolio/Movers drive the row */}
         <div className="relative min-h-[200px]">
-        <div ref={tasksPanelRef} className="absolute inset-0 bg-white rounded-3xl border border-gray-100 p-6 shadow-sm flex flex-col overflow-hidden">
+        <div ref={tasksPanelRef} className="absolute inset-0 bg-white rounded-3xl border border-gray-100 p-6 shadow-sm flex flex-col overflow-hidden transition-all duration-300 hover:border-emerald-200 hover:shadow-emerald-100/50 hover:shadow-lg">
           {taskData ? (
             <div className="flex flex-col flex-1">
               {/* High Priority */}
@@ -881,9 +881,9 @@ export default function DashboardPage() {
         ];
 
         const colorMap = {
-          emerald: { text: 'text-emerald-600', bg: 'bg-emerald-500', bgLight: 'bg-emerald-50', dot: 'bg-emerald-400' },
-          red: { text: 'text-red-500', bg: 'bg-red-500', bgLight: 'bg-red-50', dot: 'bg-red-400' },
-          amber: { text: 'text-amber-600', bg: 'bg-amber-500', bgLight: 'bg-amber-50', dot: 'bg-amber-400' },
+          emerald: { text: 'text-emerald-600', bg: 'bg-emerald-500', bgLight: 'bg-emerald-50', dot: 'bg-emerald-400', hoverBorder: 'hover:border-emerald-200', hoverShadow: 'hover:shadow-emerald-100/50' },
+          red: { text: 'text-red-500', bg: 'bg-red-500', bgLight: 'bg-red-50', dot: 'bg-red-400', hoverBorder: 'hover:border-red-200', hoverShadow: 'hover:shadow-red-100/50' },
+          amber: { text: 'text-amber-600', bg: 'bg-amber-500', bgLight: 'bg-amber-50', dot: 'bg-amber-400', hoverBorder: 'hover:border-amber-200', hoverShadow: 'hover:shadow-amber-100/50' },
         };
 
         return (
@@ -896,7 +896,7 @@ export default function DashboardPage() {
               {metrics.map(m => {
                 const c = colorMap[m.color];
                 return (
-                  <div key={m.label} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow group">
+                  <div key={m.label} className={`bg-white rounded-2xl border border-gray-100 p-5 shadow-sm transition-all duration-300 hover:shadow-lg ${c.hoverBorder} ${c.hoverShadow} group`}>
                     <div className="flex items-start justify-between mb-3">
                       <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{m.label}</span>
                       <span className={`w-2 h-2 rounded-full ${c.dot}`} />
