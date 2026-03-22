@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { RefreshCw, Download, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn } from 'lucide-react';
 import Card from '@/components/Card';
 import StatCard from '@/components/StatCard';
@@ -16,8 +17,10 @@ import RichTextArea from '@/components/RichTextArea';
 
 export default function ResearchPage() {
   const cache = useCache();
+  const searchParams = useSearchParams();
+  const urlTicker = searchParams.get('ticker');
   const [portfolio, setPortfolio] = useState(() => cache.get('research_portfolio') || null);
-  const [selectedTicker, setSelectedTicker] = useState(() => cache.get('research_selectedTicker') || '');
+  const [selectedTicker, setSelectedTicker] = useState(() => urlTicker || cache.get('research_selectedTicker') || '');
   const [tickerData, setTickerData] = useState(() => cache.get('research_tickerData') || null);
   const [loading, setLoading] = useState(() => !cache.get('research_portfolio'));
   const [tickerLoading, setTickerLoading] = useState(false);

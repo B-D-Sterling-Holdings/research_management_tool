@@ -1,5 +1,919 @@
-import { redirect } from 'next/navigation';
+'use client';
 
-export default function Home() {
-  redirect('/holdings');
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { Chart, registerables } from 'chart.js';
+import { Doughnut } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
+import {
+  Circle, ArrowUpRight, ArrowDownRight,
+} from 'lucide-react';
+
+ChartJS.register(ArcElement, ChartTooltip, Legend);
+
+Chart.register(...registerables);
+
+const TIMEFRAMES = [
+  { label: '1M', days: 30 },
+  { label: '3M', days: 90 },
+  { label: '6M', days: 180 },
+  { label: 'YTD', days: 'ytd' },
+  { label: '1Y', days: 365 },
+  { label: 'All', days: null },
+];
+
+const fmt$ = (v) => '$' + Number(v).toFixed(2);
+const fmtBig = (v) => {
+  const n = Number(v);
+  if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return fmt$(n);
+};
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+  const dragState = useRef({ dragging: false, startIdx: null, endIdx: null });
+  const [dragInfo, setDragInfo] = useState(null);
+  const [hoverInfo, setHoverInfo] = useState(null);
+  const hoverIdx = useRef(null);
+  const [navData, setNavData] = useState(null);
+  const [timeframe, setTimeframe] = useState('All');
+  const [loading, setLoading] = useState(true);
+
+  // Dashboard data
+  const [portfolio, setPortfolio] = useState(null);
+  const [quotes, setQuotes] = useState(null);
+  const [tasks, setTasks] = useState(null);
+  const [riskFreeRate, setRiskFreeRate] = useState(4);
+  const highSectionRef = useRef(null);
+  const tasksPanelRef = useRef(null);
+  const [otherTasksLimit, setOtherTasksLimit] = useState(3);
+
+  useEffect(() => {
+    // Fetch all dashboard data in parallel
+    fetch('/api/fund-nav')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setNavData(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+
+    fetch('/api/portfolio')
+      .then(r => r.json())
+      .then(d => {
+        setPortfolio(d);
+        // Fetch quotes for holdings
+        const tickers = d?.holdings?.map(h => h.ticker).join(',');
+        if (tickers) {
+          fetch(`/api/quotes?tickers=${tickers}`)
+            .then(r => r.json())
+            .then(q => setQuotes(q.quotes || q))
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    // Fetch risk-free rate from allocation settings
+    fetch('/api/allocation')
+      .then(r => r.json())
+      .then(({ config }) => {
+        if (config?.riskFreeRate !== undefined) setRiskFreeRate(Number(config.riskFreeRate));
+      })
+      .catch(() => {});
+
+    // Fetch first board's tasks
+    fetch('/api/task-boards')
+      .then(r => r.json())
+      .then(({ boards }) => {
+        const firstId = boards?.[0]?.id || 'default';
+        return fetch(`/api/tasks?board_id=${firstId}`);
+      })
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setTasks(d); })
+      .catch(() => {});
+  }, []);
+
+  // Derived portfolio data
+  const holdingsData = (() => {
+    if (!portfolio?.holdings || !quotes) return null;
+    const rows = portfolio.holdings
+      .map(h => {
+        const q = quotes[h.ticker];
+        if (!q) return null;
+        const mktVal = h.shares * q.price;
+        const costVal = h.shares * h.cost_basis;
+        const gl = mktVal - costVal;
+        const glPct = costVal > 0 ? (gl / costVal) * 100 : 0;
+        return {
+          ticker: h.ticker,
+          shares: h.shares,
+          price: q.price,
+          dayChange: q.dayChangePct || 0,
+          mktVal,
+          gl,
+          glPct,
+          costBasis: h.cost_basis,
+        };
+      })
+      .filter(Boolean);
+
+    const totalMktVal = rows.reduce((s, r) => s + r.mktVal, 0);
+    const totalCost = rows.reduce((s, r) => s + (r.shares * r.costBasis), 0);
+    const totalGL = totalMktVal - totalCost;
+    const totalGLPct = totalCost > 0 ? (totalGL / totalCost) * 100 : 0;
+    const cash = portfolio.cash || 0;
+
+    const winners = [...rows].filter(r => r.dayChange > 0).sort((a, b) => b.dayChange - a.dayChange).slice(0, 3);
+    const losers = [...rows].filter(r => r.dayChange < 0).sort((a, b) => a.dayChange - b.dayChange).slice(0, 3);
+
+    // Pie chart data — sorted by weight descending
+    const totalWithCash = totalMktVal + cash;
+    const sorted = [...rows].sort((a, b) => b.mktVal - a.mktVal);
+    const pieItems = sorted.map(r => ({
+      ticker: r.ticker,
+      weight: totalWithCash > 0 ? (r.mktVal / totalWithCash) * 100 : 0,
+    }));
+    if (cash > 0) {
+      pieItems.push({ ticker: 'Cash', weight: (cash / totalWithCash) * 100 });
+    }
+
+    return { rows, totalMktVal, totalCost, totalGL, totalGLPct, cash, winners, losers, pieItems, totalWithCash };
+  })();
+
+  // Task stats
+  const taskData = (() => {
+    if (!tasks) return null;
+    const open = tasks.filter(t => !t.done);
+    const high = open.filter(t => t.priority === 'highest' || t.priority === 'high');
+    const medium = open.filter(t => t.priority === 'medium');
+    const completed = tasks.filter(t => t.done);
+    return { open, high, medium, completed, total: tasks.length };
+  })();
+
+  // Measure the tasks panel container and compute how many "other" tasks fit
+  useEffect(() => {
+    function measure() {
+      const panel = tasksPanelRef.current;
+      if (!panel) return;
+      const panelH = panel.offsetHeight; // this is the grid-row height from siblings
+      if (panelH <= 0) return;
+
+      // Measure the high priority section
+      const highH = highSectionRef.current?.offsetHeight || 0;
+      // Fixed overhead: p-6 padding (48px) + header row (28px) + mb-3 gap (12px) + completion bar area (52px)
+      const overhead = 48 + 28 + 12 + 52;
+      // "Other Tasks" section header + border-top + margins (~44px)
+      const otherSectionOverhead = 44;
+      // "+N more" link (~24px)
+      const moreLink = 24;
+
+      const availableForOther = panelH - overhead - highH - otherSectionOverhead - moreLink;
+      const taskRowH = 40; // each task row ~40px
+      const maxTasks = Math.max(0, Math.floor(availableForOther / taskRowH));
+      setOtherTasksLimit(maxTasks);
+    }
+    // Delay to let siblings render and set the grid row height
+    const t = setTimeout(measure, 150);
+    window.addEventListener('resize', measure);
+    return () => { clearTimeout(t); window.removeEventListener('resize', measure); };
+  }, [holdingsData, taskData]);
+
+  // Period returns computed from full navData
+  const periodReturns = (() => {
+    if (!navData || !navData.length) return null;
+    const last = navData[navData.length - 1];
+    const prev = navData.length >= 2 ? navData[navData.length - 2] : last;
+    const first = navData[0];
+
+    function findByDaysAgo(days) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      // Find first entry on or after cutoff
+      return navData.find(d => d.date >= cutoffStr) || navData[0];
+    }
+
+    function calcReturn(start, end) {
+      return { fund: ((end.fund_nav - start.fund_nav) / start.fund_nav) * 100, sp: ((end.sp500_nav - start.sp500_nav) / start.sp500_nav) * 100 };
+    }
+
+    const dayReturn = calcReturn(prev, last);
+    const m1 = calcReturn(findByDaysAgo(30), last);
+    const m3 = calcReturn(findByDaysAgo(90), last);
+    const y1 = calcReturn(findByDaysAgo(365), last);
+    const cum = calcReturn(first, last);
+
+    return { day: dayReturn, '1M': m1, '3M': m3, '1Y': y1, cumulative: cum };
+  })();
+
+  // ── Chart logic (same as before) ──
+
+  const filtered = (() => {
+    if (!navData) return [];
+    const tf = TIMEFRAMES.find(t => t.label === timeframe);
+    if (!tf || tf.days === null) return navData;
+    if (tf.days === 'ytd') {
+      const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+      return navData.filter(d => d.date >= yearStart);
+    }
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - tf.days);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    return navData.filter(d => d.date >= cutoffStr);
+  })();
+
+  const stats = (() => {
+    if (!filtered.length) return null;
+    const first = filtered[0];
+    const last = filtered[filtered.length - 1];
+    const fundReturn = ((last.fund_nav - first.fund_nav) / first.fund_nav * 100);
+    const spReturn = ((last.sp500_nav - first.sp500_nav) / first.sp500_nav * 100);
+    const alpha = fundReturn - spReturn;
+    return { fundNav: fmt$(last.fund_nav), spNav: fmt$(last.sp500_nav), fundReturn, spReturn, alpha };
+  })();
+
+  const labels = filtered.map(d => {
+    const dt = new Date(d.date + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  });
+  const fundValues = filtered.map(d => Number(d.fund_nav));
+  const spValues = filtered.map(d => Number(d.sp500_nav));
+
+  function getIndexFromClientX(clientX) {
+    const chart = chartRef.current;
+    if (!chart || !canvasRef.current) return null;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta.data.length) return null;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mouseX = clientX - rect.left;
+    const { left, right } = chart.chartArea;
+    if (mouseX >= right) return meta.data.length - 1;
+    if (mouseX <= left) return 0;
+    let closest = 0, closestDist = Infinity;
+    for (let i = 0; i < meta.data.length; i++) {
+      const dist = Math.abs(meta.data[i].x - mouseX);
+      if (dist < closestDist) { closestDist = dist; closest = i; }
+    }
+    return closest;
+  }
+
+  function updateDragInfo(idx, clientX, clientY) {
+    const ds = dragState.current;
+    const sIdx = ds.startIdx;
+    const fundStart = fundValues[sIdx], fundEnd = fundValues[idx];
+    const spStart = spValues[sIdx], spEnd = spValues[idx];
+    if (fundStart == null || fundEnd == null) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    setDragInfo({
+      fundPct: ((fundEnd - fundStart) / fundStart) * 100,
+      spPct: ((spEnd - spStart) / spStart) * 100,
+      fundStart: fmt$(fundStart), fundEnd: fmt$(fundEnd),
+      spStart: fmt$(spStart), spEnd: fmt$(spEnd),
+      startLabel: labels[sIdx], endLabel: labels[idx],
+      x: clientX - rect.left, y: clientY - rect.top,
+    });
+  }
+
+  function handleMouseDown(e) {
+    const idx = getIndexFromClientX(e.clientX);
+    if (idx === null) return;
+    dragState.current = { dragging: true, startIdx: idx, endIdx: idx };
+    hoverIdx.current = null;
+    setHoverInfo(null);
+    setDragInfo(null);
+  }
+
+  function handleMouseMove(e) {
+    const idx = getIndexFromClientX(e.clientX);
+    if (idx === null) return;
+    if (dragState.current.dragging) {
+      dragState.current.endIdx = idx;
+      updateDragInfo(idx, e.clientX, e.clientY);
+      hoverIdx.current = null;
+      setHoverInfo(null);
+      if (chartRef.current) chartRef.current.draw();
+      return;
+    }
+    hoverIdx.current = idx;
+    setHoverInfo({ date: labels[idx], fund: fmt$(fundValues[idx]), sp: fmt$(spValues[idx]) });
+  }
+
+  function handleMouseLeave() {
+    if (dragState.current.dragging) return;
+    hoverIdx.current = null;
+    if (fundValues.length) {
+      const i = fundValues.length - 1;
+      setHoverInfo({ date: labels[i], fund: fmt$(fundValues[i]), sp: fmt$(spValues[i]) });
+    }
+  }
+
+  const endDrag = useCallback(() => {
+    if (!dragState.current.dragging) return;
+    dragState.current = { dragging: false, startIdx: null, endIdx: null };
+    setDragInfo(null);
+    if (chartRef.current) chartRef.current.draw();
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('mouseup', endDrag);
+    return () => window.removeEventListener('mouseup', endDrag);
+  }, [endDrag]);
+
+  useEffect(() => {
+    if (!canvasRef.current || !filtered.length) return;
+    if (chartRef.current) chartRef.current.destroy();
+    const ctx = canvasRef.current.getContext('2d');
+    const fundGradient = ctx.createLinearGradient(0, 0, 0, 320);
+    fundGradient.addColorStop(0, 'rgba(16, 185, 129, 0.12)');
+    fundGradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+    const overlayPlugin = {
+      id: 'overlayPlugin',
+      afterDraw(chart) {
+        const { ctx: drawCtx, chartArea } = chart;
+        const meta = chart.getDatasetMeta(0);
+        if (!meta.data.length) return;
+        const ds = dragState.current;
+        if (ds.dragging && ds.startIdx !== null && ds.endIdx !== null) {
+          const minIdx = Math.min(ds.startIdx, ds.endIdx);
+          const maxIdx = Math.max(ds.startIdx, ds.endIdx);
+          const startX = meta.data[minIdx]?.x, endX = meta.data[maxIdx]?.x;
+          if (startX != null && endX != null) {
+            drawCtx.save();
+            drawCtx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+            drawCtx.fillRect(startX, chartArea.top, endX - startX, chartArea.bottom - chartArea.top);
+            drawCtx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+            drawCtx.lineWidth = 1;
+            drawCtx.setLineDash([4, 3]);
+            drawCtx.beginPath();
+            drawCtx.moveTo(startX, chartArea.top); drawCtx.lineTo(startX, chartArea.bottom);
+            drawCtx.moveTo(endX, chartArea.top); drawCtx.lineTo(endX, chartArea.bottom);
+            drawCtx.stroke();
+            drawCtx.setLineDash([]);
+            drawCtx.restore();
+          }
+        }
+      },
+    };
+
+    chartRef.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Fund NAV', data: fundValues, borderColor: '#10b981',
+            backgroundColor: fundGradient, borderWidth: 2.5, fill: true,
+            tension: 0.3, pointRadius: 0, pointHoverRadius: 0,
+          },
+          {
+            label: 'S&P 500 NAV', data: spValues, borderColor: '#6b7280',
+            backgroundColor: 'transparent', borderWidth: 2, borderDash: [6, 3],
+            fill: false, tension: 0.3, pointRadius: 0, pointHoverRadius: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: {
+            grid: { color: '#f9fafb' },
+            ticks: { color: '#b0b5bd', maxTicksLimit: 8, font: { size: 9, family: 'Plus Jakarta Sans' } },
+            border: { color: '#f3f4f6' },
+          },
+          y: {
+            grid: { color: '#f9fafb' },
+            ticks: { color: '#9ca3af', font: { size: 10, family: 'Plus Jakarta Sans' }, callback: v => '$' + v },
+            border: { color: '#f3f4f6' },
+          },
+        },
+      },
+      plugins: [overlayPlugin],
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [filtered]);
+
+  // ── Render ──
+
+  return (
+    <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16 space-y-6">
+
+      {/* ── NAV Chart ── */}
+      <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Fund Performance</h2>
+            {stats && (
+              <div className="flex items-center gap-6 mt-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-0.5 rounded-full bg-emerald-500 inline-block" />
+                  <span className="text-xs text-gray-500">Fund NAV</span>
+                  <span className="text-sm font-bold text-gray-900">{stats.fundNav}</span>
+                  <span className={`text-xs font-semibold ${stats.fundReturn >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {stats.fundReturn >= 0 ? '+' : ''}{stats.fundReturn.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-0.5 rounded-full bg-gray-400 inline-block" style={{ borderTop: '2px dashed #9ca3af', height: 0 }} />
+                  <span className="text-xs text-gray-500">S&P 500</span>
+                  <span className="text-sm font-bold text-gray-900">{stats.spNav}</span>
+                  <span className={`text-xs font-semibold ${stats.spReturn >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {stats.spReturn >= 0 ? '+' : ''}{stats.spReturn.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-400">Alpha</span>
+                  <span className={`text-xs font-bold ${stats.alpha >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {stats.alpha >= 0 ? '+' : ''}{stats.alpha.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
+            {TIMEFRAMES.map(tf => (
+              <button key={tf.label} onClick={() => setTimeframe(tf.label)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${timeframe === tf.label ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
+                {tf.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 relative select-none" style={{ height: 320, cursor: 'crosshair' }}
+          onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+          {loading ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length ? (
+            <>
+              <canvas ref={canvasRef} />
+              {hoverInfo && !dragInfo && (
+                <div className="absolute top-2 right-3 z-10 text-right pointer-events-none">
+                  <div className="text-[11px] font-medium text-gray-400">{hoverInfo.date}</div>
+                  <div className="flex items-center justify-end gap-3 mt-0.5">
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                      <span className="text-xs text-gray-500">Fund</span>
+                      <span className="text-xs font-bold text-gray-900">{hoverInfo.fund}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
+                      <span className="text-xs text-gray-500">S&P</span>
+                      <span className="text-xs font-bold text-gray-900">{hoverInfo.sp}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {dragInfo && (
+                <div className="absolute pointer-events-none z-10"
+                  style={{ left: Math.min(dragInfo.x + 12, canvasRef.current?.offsetWidth - 200 || 0), top: Math.max(dragInfo.y - 90, 4) }}>
+                  <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-lg px-3 py-2.5 min-w-[170px]">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                      <span className="text-[10px] text-gray-400">Fund</span>
+                      <span className={`text-sm font-bold ml-auto ${dragInfo.fundPct >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {dragInfo.fundPct >= 0 ? '+' : ''}{dragInfo.fundPct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-gray-400 ml-3.5 mb-2">{dragInfo.fundStart} → {dragInfo.fundEnd}</div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
+                      <span className="text-[10px] text-gray-400">S&P 500</span>
+                      <span className={`text-sm font-bold ml-auto ${dragInfo.spPct >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {dragInfo.spPct >= 0 ? '+' : ''}{dragInfo.spPct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-gray-400 ml-3.5 mb-1.5">{dragInfo.spStart} → {dragInfo.spEnd}</div>
+                    <div className="text-[10px] text-gray-300 border-t border-gray-100 pt-1.5">{dragInfo.startLabel} → {dragInfo.endLabel}</div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="h-full flex items-center justify-center text-gray-400 text-sm">No data available</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Period Returns ── */}
+      {periodReturns && (
+        <div className="grid grid-cols-5 gap-3">
+          {[
+            { label: 'Today', data: periodReturns.day },
+            { label: '1 Month', data: periodReturns['1M'] },
+            { label: '3 Month', data: periodReturns['3M'] },
+            { label: '1 Year', data: periodReturns['1Y'] },
+            { label: 'Cumulative', data: periodReturns.cumulative },
+          ].map(({ label, data }) => {
+            const alpha = data.fund - data.sp;
+            return (
+              <div key={label} className="bg-white rounded-2xl border border-gray-100 px-4 py-3.5 shadow-sm">
+                <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">{label}</div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-gray-400">Fund</span>
+                  <span className={`text-sm font-bold tabular-nums ${data.fund >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {data.fund >= 0 ? '+' : ''}{data.fund.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-gray-400">S&P 500</span>
+                  <span className={`text-xs font-semibold tabular-nums ${data.sp >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {data.sp >= 0 ? '+' : ''}{data.sp.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="border-t border-gray-50 pt-1.5 flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400">Alpha</span>
+                  <span className={`text-[11px] font-bold tabular-nums ${alpha >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {alpha >= 0 ? '+' : ''}{alpha.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Portfolio Snapshot + Today's Movers ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* Portfolio Summary */}
+        <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+          <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">Portfolio</h3>
+          {holdingsData ? (() => {
+            const top7 = holdingsData.pieItems.slice(0, 7);
+            const rest = holdingsData.pieItems.slice(7);
+            const otherWeight = rest.reduce((s, p) => s + p.weight, 0);
+            const display = otherWeight > 0
+              ? [...top7, { ticker: `Other (${rest.length})`, weight: otherWeight, isOther: true }]
+              : top7;
+            const PIE_COLORS = ['#2563EB','#DC2626','#16A34A','#7C3AED','#0891B2','#EA580C','#C026D3'];
+            const colors = display.map((p, i) =>
+              p.isOther || p.ticker === 'Cash' ? '#d1d5db' : PIE_COLORS[i % PIE_COLORS.length]
+            );
+            return (
+              <div className="flex flex-col gap-6">
+                {/* Donut with center label */}
+                <div className="relative w-52 h-52 mx-auto">
+                  <Doughnut
+                    data={{
+                      labels: display.map(p => p.ticker),
+                      datasets: [{
+                        data: display.map(p => p.weight),
+                        backgroundColor: colors,
+                        borderWidth: 2,
+                        borderColor: '#fff',
+                      }],
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: true,
+                      cutout: '68%',
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          backgroundColor: 'rgba(255,255,255,0.95)',
+                          borderColor: '#e5e7eb',
+                          borderWidth: 1,
+                          titleColor: '#111827',
+                          bodyColor: '#6b7280',
+                          padding: 8,
+                          cornerRadius: 8,
+                          callbacks: {
+                            label: (ctx) => `${ctx.label}: ${ctx.parsed.toFixed(1)}%`,
+                          },
+                        },
+                      },
+                    }}
+                  />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <div className="text-xl font-bold text-gray-900 leading-none">{fmtBig(holdingsData.totalWithCash)}</div>
+                    <div className={`text-xs font-semibold mt-1 ${holdingsData.totalGL >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {holdingsData.totalGL >= 0 ? '+' : ''}{fmtBig(holdingsData.totalGL)} ({holdingsData.totalGLPct >= 0 ? '+' : ''}{holdingsData.totalGLPct.toFixed(1)}%)
+                    </div>
+                    <div className="text-[11px] text-gray-400">unrealized</div>
+                  </div>
+                </div>
+
+                {/* Holdings grid — matches pie slices */}
+                <div className="grid grid-cols-2 gap-x-5 gap-y-4 flex-1">
+                  {display.map((p, i) => (
+                    <div key={p.ticker} className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: colors[i] }} />
+                        <span className={`text-[13px] font-semibold truncate ${p.isOther ? 'text-gray-400' : 'text-gray-800'}`}>{p.ticker}</span>
+                      </div>
+                      <span className={`text-[13px] tabular-nums font-medium shrink-0 ${p.isOther ? 'text-gray-300' : 'text-gray-500'}`}>{p.weight.toFixed(1)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })() : (
+            <div className="space-y-3">
+              {[1,2,3,4].map(i => <div key={i} className="h-8 rounded-lg skeleton" />)}
+            </div>
+          )}
+        </div>
+
+        {/* Today's Movers */}
+        <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+          <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-4">Today&apos;s Movers</h3>
+          {holdingsData ? (
+            <div className="space-y-4">
+              {/* Winners */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-2 px-1">
+                  <ArrowUpRight size={12} className="text-emerald-500" />
+                  <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider">Best</span>
+                </div>
+                <div className="space-y-0.5">
+                  {holdingsData.winners.map(h => (
+                    <button key={h.ticker} onClick={() => router.push(`/position-review?ticker=${h.ticker}`)}
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl hover:bg-emerald-50/50 transition-colors">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center">
+                          <ArrowUpRight size={13} className="text-emerald-700" />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-gray-900">{h.ticker}</div>
+                          <div className="text-[10px] text-gray-400">{fmt$(h.price)}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-bold text-emerald-600">+{h.dayChange.toFixed(2)}%</div>
+                        <div className={`text-[10px] ${h.glPct >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                          {h.glPct >= 0 ? '+' : ''}{h.glPct.toFixed(1)}% total
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                  {holdingsData.winners.length === 0 && (
+                    <div className="text-[10px] text-gray-300 text-center py-2">No gainers today</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100" />
+
+              {/* Losers */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-2 px-1">
+                  <ArrowDownRight size={12} className="text-red-400" />
+                  <span className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">Worst</span>
+                </div>
+                <div className="space-y-0.5">
+                  {holdingsData.losers.map(h => (
+                    <button key={h.ticker} onClick={() => router.push(`/position-review?ticker=${h.ticker}`)}
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl hover:bg-red-50/50 transition-colors">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-red-100 flex items-center justify-center">
+                          <ArrowDownRight size={13} className="text-red-600" />
+                        </div>
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-gray-900">{h.ticker}</div>
+                          <div className="text-[10px] text-gray-400">{fmt$(h.price)}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-bold text-red-500">{h.dayChange.toFixed(2)}%</div>
+                        <div className={`text-[10px] ${h.glPct >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                          {h.glPct >= 0 ? '+' : ''}{h.glPct.toFixed(1)}% total
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                  {holdingsData.losers.length === 0 && (
+                    <div className="text-[10px] text-gray-300 text-center py-2">No losers today</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {[1,2,3,4,5].map(i => <div key={i} className="h-9 rounded-lg skeleton" />)}
+            </div>
+          )}
+        </div>
+
+        {/* Tasks */}
+        {/* Tasks — wrapper is relative with no content height so Portfolio/Movers drive the row */}
+        <div className="relative min-h-[200px]">
+        <div ref={tasksPanelRef} className="absolute inset-0 bg-white rounded-3xl border border-gray-100 p-6 shadow-sm flex flex-col overflow-hidden">
+          {taskData ? (
+            <div className="flex flex-col flex-1">
+              {/* High Priority */}
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">High Priority</h3>
+                <span className="text-[10px] font-semibold text-red-400 bg-red-50 rounded-full px-2 py-0.5">
+                  {taskData.high.length}
+                </span>
+              </div>
+              <div ref={highSectionRef} className="space-y-0.5">
+                {taskData.high.map(task => (
+                  <button key={task.id} onClick={() => router.push('/tasks')}
+                    className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left">
+                    <Circle size={14} className="mt-0.5 shrink-0 text-red-400" strokeWidth={2.5} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-gray-900 truncate">{task.title}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {task.assignee && <span className="text-[10px] text-gray-400">{task.assignee}</span>}
+                        {task.subtasks?.length > 0 && (
+                          <span className="text-[10px] text-gray-300">
+                            {task.subtasks.filter(s => s.done).length}/{task.subtasks.length}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {taskData.high.length === 0 && (
+                  <div className="text-[10px] text-gray-300 text-center py-3">No high priority tasks</div>
+                )}
+              </div>
+
+              {/* Medium + Low */}
+              {(() => {
+                const otherTasks = [...taskData.medium, ...taskData.open.filter(t => t.priority === 'low')];
+                if (otherTasks.length === 0 || otherTasksLimit <= 0) return null;
+                const visible = otherTasks.slice(0, otherTasksLimit);
+                const hidden = otherTasks.length - visible.length;
+                return (
+                <div className="mt-3 pt-3 border-t border-gray-50">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Other Tasks</h3>
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
+                      {otherTasks.length}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {visible.map(task => (
+                      <button key={task.id} onClick={() => router.push('/tasks')}
+                        className="w-full flex items-start gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-gray-50 transition-colors text-left">
+                        <Circle size={12} className={`mt-0.5 shrink-0 ${task.priority === 'medium' ? 'text-amber-400' : 'text-gray-300'}`} strokeWidth={2.5} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] font-medium text-gray-700 truncate">{task.title}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[9px] font-bold uppercase tracking-wider ${task.priority === 'medium' ? 'text-amber-400' : 'text-gray-300'}`}>
+                              {task.priority}
+                            </span>
+                            {task.assignee && <span className="text-[10px] text-gray-400">{task.assignee}</span>}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                    {hidden > 0 && (
+                      <button onClick={() => router.push('/tasks')}
+                        className="w-full text-center text-[10px] font-medium text-gray-400 hover:text-gray-600 pt-1.5 transition-colors">
+                        +{hidden} more in task board
+                      </button>
+                    )}
+                  </div>
+                </div>
+                );
+              })()}
+
+              {/* Completion bar */}
+              {taskData.total > 0 && (
+                <div className="pt-3 mt-auto border-t border-gray-50">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] text-gray-400">{taskData.completed.length} of {taskData.total} done</span>
+                    <span className="text-[10px] font-semibold text-gray-500">
+                      {Math.round((taskData.completed.length / taskData.total) * 100)}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                      style={{ width: `${(taskData.completed.length / taskData.total) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {[1,2,3,4,5].map(i => <div key={i} className="h-9 rounded-lg skeleton" />)}
+            </div>
+          )}
+        </div>
+        </div>
+      </div>
+
+      {/* ── Fund Analytics ── */}
+      {navData && navData.length > 1 && (() => {
+        const n = navData.length;
+        const fundPrices = navData.map(d => Number(d.fund_nav));
+        const spPrices = navData.map(d => Number(d.sp500_nav));
+
+        // Daily returns
+        const fundReturns = [];
+        const spReturns = [];
+        for (let i = 1; i < n; i++) {
+          fundReturns.push((fundPrices[i] - fundPrices[i - 1]) / fundPrices[i - 1]);
+          spReturns.push((spPrices[i] - spPrices[i - 1]) / spPrices[i - 1]);
+        }
+
+        const mean = arr => arr.reduce((s, v) => s + v, 0) / arr.length;
+        const std = arr => { const m = mean(arr); return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length); };
+
+        // Annualized return
+        const totalReturn = (fundPrices[n - 1] / fundPrices[0]) - 1;
+        const years = n / 252;
+        const annReturn = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
+
+        // Annualized volatility
+        const annVol = std(fundReturns) * Math.sqrt(252) * 100;
+
+        // Sharpe Ratio
+        const rf = riskFreeRate;
+        const sharpe = (annReturn - rf) / annVol;
+
+        // Max Drawdown
+        let peak = fundPrices[0], maxDD = 0;
+        for (let i = 1; i < n; i++) {
+          if (fundPrices[i] > peak) peak = fundPrices[i];
+          const dd = (peak - fundPrices[i]) / peak;
+          if (dd > maxDD) maxDD = dd;
+        }
+
+        // Beta vs S&P
+        const mf = mean(fundReturns), ms = mean(spReturns);
+        let cov = 0, varS = 0;
+        for (let i = 0; i < fundReturns.length; i++) {
+          cov += (fundReturns[i] - mf) * (spReturns[i] - ms);
+          varS += (spReturns[i] - ms) ** 2;
+        }
+        const beta = varS > 0 ? cov / varS : 0;
+
+        // Alpha (Jensen's)
+        const spTotal = (spPrices[n - 1] / spPrices[0]) - 1;
+        const spAnnReturn = (Math.pow(1 + spTotal, 1 / years) - 1) * 100;
+        const alpha = annReturn - (rf + beta * (spAnnReturn - rf));
+
+        // Tracking Error
+        const excessReturns = fundReturns.map((r, i) => r - spReturns[i]);
+        const trackingError = std(excessReturns) * Math.sqrt(252) * 100;
+
+        // Win Rate (days beating S&P)
+        const wins = fundReturns.filter((r, i) => r > spReturns[i]).length;
+        const winRate = (wins / fundReturns.length) * 100;
+
+        const metrics = [
+          { label: 'Annualized Return', value: `${annReturn >= 0 ? '+' : ''}${annReturn.toFixed(2)}%`, color: annReturn >= 0 ? 'emerald' : 'red',
+            sub: 'Compound annual growth rate', bar: Math.min(Math.abs(annReturn) / 30 * 100, 100) },
+          { label: 'Annualized Volatility', value: `${annVol.toFixed(2)}%`, color: annVol < 20 ? 'emerald' : annVol < 30 ? 'amber' : 'red',
+            sub: 'Std deviation of returns (ann.)', bar: Math.min(annVol / 40 * 100, 100) },
+          { label: 'Sharpe Ratio', value: sharpe.toFixed(2), color: sharpe > 1 ? 'emerald' : sharpe > 0.5 ? 'amber' : 'red',
+            sub: `Risk-adjusted return (rf=${rf}%)`, bar: Math.min(Math.max(sharpe, 0) / 3 * 100, 100) },
+          { label: 'Max Drawdown', value: `${(maxDD * 100).toFixed(2)}%`, color: maxDD < 0.1 ? 'emerald' : maxDD < 0.2 ? 'amber' : 'red',
+            sub: 'Largest peak-to-trough decline', bar: Math.min(maxDD * 100 / 50 * 100, 100) },
+          { label: 'Beta', value: beta.toFixed(2), color: beta < 1.1 && beta > 0.9 ? 'amber' : beta < 1 ? 'emerald' : 'red',
+            sub: `Sensitivity to S&P 500 moves`, bar: Math.min(Math.abs(beta) / 2 * 100, 100) },
+          { label: "Jensen's Alpha", value: `${alpha >= 0 ? '+' : ''}${alpha.toFixed(2)}%`, color: alpha >= 0 ? 'emerald' : 'red',
+            sub: 'Excess return vs expected (CAPM)', bar: Math.min(Math.abs(alpha) / 20 * 100, 100) },
+          { label: 'Tracking Error', value: `${trackingError.toFixed(2)}%`, color: trackingError < 5 ? 'emerald' : trackingError < 10 ? 'amber' : 'red',
+            sub: 'Volatility of excess returns', bar: Math.min(trackingError / 20 * 100, 100) },
+          { label: 'Win Rate vs S&P', value: `${winRate.toFixed(1)}%`, color: winRate > 52 ? 'emerald' : winRate > 48 ? 'amber' : 'red',
+            sub: `${wins} of ${fundReturns.length} trading days`, bar: winRate },
+        ];
+
+        const colorMap = {
+          emerald: { text: 'text-emerald-600', bg: 'bg-emerald-500', bgLight: 'bg-emerald-50', dot: 'bg-emerald-400' },
+          red: { text: 'text-red-500', bg: 'bg-red-500', bgLight: 'bg-red-50', dot: 'bg-red-400' },
+          amber: { text: 'text-amber-600', bg: 'bg-amber-500', bgLight: 'bg-amber-50', dot: 'bg-amber-400' },
+        };
+
+        return (
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Fund Analytics</h3>
+              <span className="text-[10px] text-gray-300">{n} trading days</span>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {metrics.map(m => {
+                const c = colorMap[m.color];
+                return (
+                  <div key={m.label} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow group">
+                    <div className="flex items-start justify-between mb-3">
+                      <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{m.label}</span>
+                      <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+                    </div>
+                    <div className={`text-2xl font-bold tabular-nums ${c.text} mb-1`}>{m.value}</div>
+                    <div className="text-[10px] text-gray-400 mb-3">{m.sub}</div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${c.bg} transition-all duration-700`}
+                        style={{ width: `${m.bar}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
 }
