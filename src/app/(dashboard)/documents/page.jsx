@@ -106,6 +106,7 @@ export default function DocumentsPage() {
   const [dragOver, setDragOver] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ title: '', category: '', ticker: '', notes: '' });
+  const [uploadError, setUploadError] = useState('');
   const [filterTicker, setFilterTicker] = useState('');
   const [tickerDropdownOpen, setTickerDropdownOpen] = useState(false);
   const tickerDropdownRef = useRef(null);
@@ -132,6 +133,7 @@ export default function DocumentsPage() {
 
   const handleFilesSelected = (files) => {
     if (!files?.length) return;
+    setUploadError('');
     setPendingFiles(Array.from(files));
     setUploadTitle(files.length === 1 ? files[0].name.replace(/\.[^/.]+$/, '') : '');
   };
@@ -145,8 +147,10 @@ export default function DocumentsPage() {
   const handleUpload = async () => {
     if (!pendingFiles.length) return;
     setUploading(true);
-    try {
-      for (const file of pendingFiles) {
+    setUploadError('');
+    const failed = [];
+    for (const file of pendingFiles) {
+      try {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('title', pendingFiles.length === 1 ? (uploadTitle || file.name) : file.name);
@@ -156,19 +160,31 @@ export default function DocumentsPage() {
 
         const res = await fetch('/api/documents', { method: 'POST', body: formData });
         const data = await res.json();
+        if (!res.ok) {
+          failed.push({ name: file.name, reason: data.error || `Upload failed (${res.status})` });
+          continue;
+        }
         if (data.document) {
           setDocuments(prev => [data.document, ...prev]);
         }
+      } catch (err) {
+        failed.push({ name: file.name, reason: err.message || 'Network error' });
       }
-      setPendingFiles([]);
-      setUploadTitle('');
-      setUploadCategory('other');
-      setUploadTicker('');
-      setUploadNotes('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch {} finally {
-      setUploading(false);
     }
+    if (failed.length > 0) {
+      setUploadError(
+        failed.length === 1
+          ? `Failed to upload ${failed[0].name}: ${failed[0].reason}`
+          : `Failed to upload ${failed.length} file${failed.length > 1 ? 's' : ''}: ${failed.map(f => f.name).join(', ')}`
+      );
+    }
+    setPendingFiles([]);
+    setUploadTitle('');
+    setUploadCategory('other');
+    setUploadTicker('');
+    setUploadNotes('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setUploading(false);
   };
 
   const cancelUpload = () => {
@@ -366,6 +382,16 @@ export default function DocumentsPage() {
           onChange={e => handleFilesSelected(e.target.files)}
         />
       </div>
+
+      {/* Upload error banner */}
+      {uploadError && (
+        <div className="mb-4 flex items-center justify-between bg-red-50 border border-red-200 rounded-2xl px-5 py-3 animate-fade-in-up">
+          <p className="text-sm text-red-700 font-medium">{uploadError}</p>
+          <button onClick={() => setUploadError('')} className="text-red-400 hover:text-red-600 transition-colors ml-3 flex-shrink-0">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Upload staging area */}
       {pendingFiles.length > 0 && (

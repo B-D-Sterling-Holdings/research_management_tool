@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
     notes TEXT DEFAULT '',
     assignee TEXT DEFAULT '',
     subtasks JSONB DEFAULT '[]'::jsonb,
+    status TEXT DEFAULT '',
     position INT DEFAULT 0,
     board_id TEXT DEFAULT 'default',
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -21,9 +22,10 @@ import { supabase } from '@/lib/supabase';
   CREATE INDEX idx_tasks_priority ON tasks(priority);
   CREATE INDEX idx_tasks_board_id ON tasks(board_id);
 
-  -- If you already have the table, add the board_id column:
+  -- If you already have the table, add missing columns:
   -- ALTER TABLE tasks ADD COLUMN board_id TEXT DEFAULT 'default';
   -- CREATE INDEX idx_tasks_board_id ON tasks(board_id);
+  -- ALTER TABLE tasks ADD COLUMN status TEXT DEFAULT '';
 */
 
 const TABLE = 'tasks';

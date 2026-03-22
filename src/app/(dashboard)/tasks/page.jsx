@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, X, Check, ChevronDown, ChevronRight, User, Pencil, GripVertical, Trash2 } from 'lucide-react';
+import { Plus, X, Check, ChevronDown, ChevronRight, User, Pencil, GripVertical, Trash2, Circle } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -64,6 +64,7 @@ function AssigneePicker({ current, onSelect, onClose, anchorRef, savedAssignees 
   const [customValue, setCustomValue] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLOR_PALETTE[0]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(null);
   const ref = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
@@ -106,15 +107,30 @@ function AssigneePicker({ current, onSelect, onClose, anchorRef, savedAssignees 
             <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
             {name}
           </button>
-          {onRemoveAssignee && (
+          {onRemoveAssignee && confirmingRemove === name ? (
+            <div className="flex items-center gap-1 pr-2" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={() => setConfirmingRemove(null)}
+                className="text-[10px] font-semibold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded hover:bg-gray-200 transition-colors"
+              >
+                No
+              </button>
+              <button
+                onClick={() => { onRemoveAssignee(name); setConfirmingRemove(null); }}
+                className="text-[10px] font-semibold text-white bg-red-500 px-1.5 py-0.5 rounded hover:bg-red-600 transition-colors"
+              >
+                Yes
+              </button>
+            </div>
+          ) : onRemoveAssignee ? (
             <button
-              onClick={(e) => { e.stopPropagation(); onRemoveAssignee(name); }}
+              onClick={(e) => { e.stopPropagation(); setConfirmingRemove(name); }}
               className="opacity-0 group-hover/row:opacity-100 pr-2 text-gray-300 hover:text-red-500 transition-all"
               title={`Remove ${name}`}
             >
               <X size={12} />
             </button>
-          )}
+          ) : null}
         </div>
       ))}
 
@@ -177,6 +193,76 @@ function AssigneePicker({ current, onSelect, onClose, anchorRef, savedAssignees 
           Remove assignee
         </button>
       )}
+    </div>,
+    document.body
+  );
+}
+
+const STATUS_OPTIONS = [
+  { value: '',          label: 'No status',     color: 'transparent', textColor: 'text-gray-400', bg: '' },
+  { value: 'working',   label: 'Working on it', color: '#f59e0b', textColor: 'text-amber-700',  bg: 'bg-amber-50 border-amber-200' },
+  { value: 'stuck',     label: 'Stuck',         color: '#ef4444', textColor: 'text-red-700',     bg: 'bg-red-50 border-red-200' },
+  { value: 'waiting',   label: 'Waiting',       color: '#8b5cf6', textColor: 'text-violet-700',  bg: 'bg-violet-50 border-violet-200' },
+  { value: 'review',    label: 'In review',     color: '#3b82f6', textColor: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200' },
+];
+
+function StatusTag({ status, onClick, size = 'normal', groupClass = 'group-hover:opacity-100' }) {
+  const opt = STATUS_OPTIONS.find(o => o.value === (status || '')) || STATUS_OPTIONS[0];
+  if (!status) {
+    return (
+      <button
+        onClick={onClick}
+        className={`opacity-0 ${groupClass} p-0.5 text-gray-400 hover:text-gray-600 transition-all duration-200`}
+        title="Set status"
+      >
+        <Circle size={size === 'small' ? 12 : 14} />
+      </button>
+    );
+  }
+  const sizeClasses = size === 'small' ? 'text-[10px] px-1.5 py-0' : 'text-[11px] px-2 py-0.5';
+  return (
+    <button
+      onClick={onClick}
+      className={`font-semibold rounded-full border transition-colors hover:opacity-80 ${sizeClasses} ${opt.bg} ${opt.textColor}`}
+    >
+      {opt.label}
+    </button>
+  );
+}
+
+function StatusPicker({ current, onSelect, onClose, anchorRef }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (anchorRef?.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.right });
+    }
+  }, [anchorRef]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return createPortal(
+    <div ref={ref} style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-100%)' }} className="z-[9999] bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[150px]">
+      {STATUS_OPTIONS.map(opt => (
+        <button
+          key={opt.value}
+          onClick={() => { onSelect(opt.value); onClose(); }}
+          className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors ${
+            (current || '') === opt.value ? 'font-semibold' : ''
+          }`}
+        >
+          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-gray-200" style={{ backgroundColor: opt.color || '#e5e7eb' }} />
+          {opt.label}
+        </button>
+      ))}
     </div>,
     document.body
   );
@@ -435,6 +521,7 @@ export default function TaskBoardPage() {
   const [addingSubtask, setAddingSubtask] = useState(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(null);     // 'task-{id}' or 'sub-{taskId}-{subId}'
+  const [statusPickerOpen, setStatusPickerOpen] = useState(null);        // 'task-{id}'
   const [editingSubId, setEditingSubId] = useState(null);                 // '{taskId}-{subId}'
   const [editingSubTitle, setEditingSubTitle] = useState('');
   const [activeId, setActiveId] = useState(null);
@@ -446,6 +533,7 @@ export default function TaskBoardPage() {
   const editRef = useRef(null);
   const subEditRef = useRef(null);
   const assigneeAnchorRefs = useRef({});
+  const statusAnchorRefs = useRef({});
   const capacityFlashTimer = useRef(null);
 
   const sensors = useSensors(
@@ -752,6 +840,21 @@ export default function TaskBoardPage() {
       });
     } catch (err) {
       setTasks(prev => prev.map(t => t.id === id ? { ...t, assignee: task.assignee } : t));
+    }
+  };
+
+  const updateStatus = async (id, status) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    try {
+      await fetch('/api/tasks', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+    } catch (err) {
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: task.status } : t));
     }
   };
 
@@ -1221,60 +1324,87 @@ export default function TaskBoardPage() {
                                 </span>
                               )}
 
-                              {/* Subtask count badge */}
-                              {hasSubtasks && !isEditing && (
-                                <span className="text-xs text-gray-400">
-                                  {doneSubtasks}/{subtasks.length}
-                                </span>
-                              )}
+                              {/* Right side: tags + actions */}
+                              <div className="flex items-center gap-0 ml-auto flex-shrink-0">
+                                {/* Subtask count badge */}
+                                {hasSubtasks && !isEditing && (
+                                  <span className="text-xs text-gray-400 mr-2">
+                                    {doneSubtasks}/{subtasks.length}
+                                  </span>
+                                )}
 
-                              {/* Assignee tag */}
-                              <div className="relative flex-shrink-0" ref={el => { assigneeAnchorRefs.current[`task-${task.id}`] = el; }}>
-                                <AssigneeTag
-                                  assignee={task.assignee}
-                                  savedAssignees={savedAssignees}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const key = `task-${task.id}`;
-                                    setAssigneePickerOpen(assigneePickerOpen === key ? null : key);
-                                  }}
-                                />
-                                {assigneePickerOpen === `task-${task.id}` && (
-                                  <AssigneePicker
-                                    current={task.assignee}
-                                    onSelect={(val) => updateAssignee(task.id, val)}
-                                    onClose={() => setAssigneePickerOpen(null)}
-                                    anchorRef={{ current: assigneeAnchorRefs.current[`task-${task.id}`] }}
-                                    savedAssignees={savedAssignees}
-                                    onAddAssignee={addAssignee}
-                                    onRemoveAssignee={removeAssignee}
+                                {/* Status tag */}
+                                <div className="relative flex-shrink-0 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200 max-w-0 overflow-hidden group-hover:max-w-[120px] group-hover:mr-2" ref={el => { statusAnchorRefs.current[`task-${task.id}`] = el; }}
+                                  style={task.status ? { maxWidth: '120px', marginRight: '8px' } : {}}
+                                >
+                                  <StatusTag
+                                    status={task.status}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const key = `task-${task.id}`;
+                                      setStatusPickerOpen(statusPickerOpen === key ? null : key);
+                                    }}
                                   />
+                                  {statusPickerOpen === `task-${task.id}` && (
+                                    <StatusPicker
+                                      current={task.status}
+                                      onSelect={(val) => updateStatus(task.id, val)}
+                                      onClose={() => setStatusPickerOpen(null)}
+                                      anchorRef={{ current: statusAnchorRefs.current[`task-${task.id}`] }}
+                                    />
+                                  )}
+                                </div>
+
+                                {/* Assignee tag */}
+                                <div className="relative flex-shrink-0 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200 max-w-0 overflow-hidden group-hover:max-w-[120px] group-hover:mr-2" ref={el => { assigneeAnchorRefs.current[`task-${task.id}`] = el; }}
+                                  style={task.assignee ? { maxWidth: '120px', marginRight: '8px' } : {}}
+                                >
+                                  <AssigneeTag
+                                    assignee={task.assignee}
+                                    savedAssignees={savedAssignees}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const key = `task-${task.id}`;
+                                      setAssigneePickerOpen(assigneePickerOpen === key ? null : key);
+                                    }}
+                                  />
+                                  {assigneePickerOpen === `task-${task.id}` && (
+                                    <AssigneePicker
+                                      current={task.assignee}
+                                      onSelect={(val) => updateAssignee(task.id, val)}
+                                      onClose={() => setAssigneePickerOpen(null)}
+                                      anchorRef={{ current: assigneeAnchorRefs.current[`task-${task.id}`] }}
+                                      savedAssignees={savedAssignees}
+                                      onAddAssignee={addAssignee}
+                                      onRemoveAssignee={removeAssignee}
+                                    />
+                                  )}
+                                </div>
+
+                                {/* Actions */}
+                                {!isEditing && (
+                                  <div className="flex items-center gap-0 max-w-0 overflow-hidden opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200">
+                                    <button
+                                      onClick={() => {
+                                        setAddingSubtask(task.id);
+                                        setNewSubtaskTitle('');
+                                        if (!expandedTasks.has(task.id)) toggleExpanded(task.id);
+                                      }}
+                                      className="p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                                      title="Add subtask"
+                                    >
+                                      <Plus size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => removeTask(task.id)}
+                                      className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                                      title="Delete task"
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
                                 )}
                               </div>
-
-                              {/* Actions */}
-                              {!isEditing && (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setAddingSubtask(task.id);
-                                      setNewSubtaskTitle('');
-                                      if (!expandedTasks.has(task.id)) toggleExpanded(task.id);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-blue-500 transition-all duration-200"
-                                    title="Add subtask"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => removeTask(task.id)}
-                                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all duration-200"
-                                    title="Delete task"
-                                  >
-                                    <X size={14} />
-                                  </button>
-                                </>
-                              )}
                             </div>
 
                             {/* Notes area */}
@@ -1359,36 +1489,69 @@ export default function TaskBoardPage() {
                                       </span>
                                     )}
 
-                                    {/* Subtask assignee */}
-                                    <div className="relative flex-shrink-0" ref={el => { assigneeAnchorRefs.current[pickerKey] = el; }}>
-                                      <AssigneeTag
-                                        assignee={sub.assignee}
-                                        size="small"
-                                        savedAssignees={savedAssignees}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setAssigneePickerOpen(assigneePickerOpen === pickerKey ? null : pickerKey);
-                                        }}
-                                      />
-                                      {assigneePickerOpen === pickerKey && (
-                                        <AssigneePicker
-                                          current={sub.assignee}
-                                          onSelect={(val) => updateSubtaskAssignee(task.id, sub.id, val)}
-                                          onClose={() => setAssigneePickerOpen(null)}
-                                          anchorRef={{ current: assigneeAnchorRefs.current[pickerKey] }}
-                                          savedAssignees={savedAssignees}
-                                          onAddAssignee={addAssignee}
-                                    onRemoveAssignee={removeAssignee}
+                                    {/* Right side: tags + actions */}
+                                    <div className="flex items-center gap-0 ml-auto flex-shrink-0">
+                                      {/* Subtask status */}
+                                      <div className="relative flex-shrink-0 transition-all duration-700 ease-in-out delay-0 group-hover/sub:delay-200 max-w-0 overflow-visible group-hover/sub:max-w-[120px] group-hover/sub:mr-2" ref={el => { statusAnchorRefs.current[pickerKey] = el; }}
+                                        style={sub.status ? { maxWidth: '120px', marginRight: '8px' } : {}}
+                                      >
+                                        <StatusTag
+                                          status={sub.status}
+                                          size="small"
+                                          groupClass="group-hover/sub:opacity-100"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setStatusPickerOpen(statusPickerOpen === pickerKey ? null : pickerKey);
+                                          }}
                                         />
-                                      )}
-                                    </div>
+                                        {statusPickerOpen === pickerKey && (
+                                          <StatusPicker
+                                            current={sub.status}
+                                            onSelect={(val) => {
+                                              const updated = (task.subtasks || []).map(s => s.id === sub.id ? { ...s, status: val } : s);
+                                              updateSubtasks(task.id, updated);
+                                            }}
+                                            onClose={() => setStatusPickerOpen(null)}
+                                            anchorRef={{ current: statusAnchorRefs.current[pickerKey] }}
+                                          />
+                                        )}
+                                      </div>
 
-                                    <button
-                                      onClick={() => removeSubtask(task.id, sub.id)}
-                                      className="opacity-0 group-hover/sub:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-all duration-200"
-                                    >
-                                      <X size={12} />
-                                    </button>
+                                      {/* Subtask assignee */}
+                                      <div className="relative flex-shrink-0 transition-all duration-700 ease-in-out delay-0 group-hover/sub:delay-200 max-w-0 overflow-visible group-hover/sub:max-w-[120px] group-hover/sub:mr-2" ref={el => { assigneeAnchorRefs.current[pickerKey] = el; }}
+                                        style={sub.assignee ? { maxWidth: '120px', marginRight: '8px' } : {}}
+                                      >
+                                        <AssigneeTag
+                                          assignee={sub.assignee}
+                                          size="small"
+                                          savedAssignees={savedAssignees}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setAssigneePickerOpen(assigneePickerOpen === pickerKey ? null : pickerKey);
+                                          }}
+                                        />
+                                        {assigneePickerOpen === pickerKey && (
+                                          <AssigneePicker
+                                            current={sub.assignee}
+                                            onSelect={(val) => updateSubtaskAssignee(task.id, sub.id, val)}
+                                            onClose={() => setAssigneePickerOpen(null)}
+                                            anchorRef={{ current: assigneeAnchorRefs.current[pickerKey] }}
+                                            savedAssignees={savedAssignees}
+                                            onAddAssignee={addAssignee}
+                                            onRemoveAssignee={removeAssignee}
+                                          />
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center max-w-0 overflow-hidden opacity-0 group-hover/sub:max-w-[40px] group-hover/sub:opacity-100 transition-all duration-700 ease-in-out delay-0 group-hover/sub:delay-200">
+                                        <button
+                                          onClick={() => removeSubtask(task.id, sub.id)}
+                                          className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      </div>
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -1494,6 +1657,14 @@ export default function TaskBoardPage() {
                         <Check size={12} strokeWidth={3} />
                       </button>
                       <span className="flex-1 text-sm text-gray-400 line-through">{task.title}</span>
+                      {task.status && (() => {
+                        const opt = STATUS_OPTIONS.find(o => o.value === task.status);
+                        return opt ? (
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border opacity-50 ${opt.bg} ${opt.textColor}`}>
+                            {opt.label}
+                          </span>
+                        ) : null;
+                      })()}
                       {task.assignee && (
                         <span
                           className="text-xs px-2 py-0.5 font-medium rounded-full border opacity-50"

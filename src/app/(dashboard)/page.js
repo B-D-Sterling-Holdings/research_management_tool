@@ -721,6 +721,10 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-medium text-gray-900 truncate">{task.title}</div>
                       <div className="flex items-center gap-2 mt-0.5">
+                        {task.status === 'working' && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 rounded-full px-1.5">Working on it</span>}
+                        {task.status === 'stuck' && <span className="text-[10px] font-semibold text-red-600 bg-red-50 rounded-full px-1.5">Stuck</span>}
+                        {task.status === 'waiting' && <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full px-1.5">Waiting</span>}
+                        {task.status === 'review' && <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 rounded-full px-1.5">In review</span>}
                         {task.assignee && <span className="text-[10px] text-gray-500">{task.assignee}</span>}
                         {task.subtasks?.length > 0 && (
                           <span className="text-[10px] text-gray-500">
@@ -761,6 +765,10 @@ export default function DashboardPage() {
                             <span className={`text-[9px] font-bold uppercase tracking-wider ${task.priority === 'medium' ? 'text-amber-400' : 'text-gray-500'}`}>
                               {task.priority}
                             </span>
+                            {task.status === 'working' && <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 rounded-full px-1.5">Working on it</span>}
+                            {task.status === 'stuck' && <span className="text-[9px] font-semibold text-red-600 bg-red-50 rounded-full px-1.5">Stuck</span>}
+                            {task.status === 'waiting' && <span className="text-[9px] font-semibold text-violet-600 bg-violet-50 rounded-full px-1.5">Waiting</span>}
+                            {task.status === 'review' && <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 rounded-full px-1.5">In review</span>}
                             {task.assignee && <span className="text-[10px] text-gray-500">{task.assignee}</span>}
                           </div>
                         </div>
