@@ -506,48 +506,89 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
 
   // ═══════════ PAGE 1: COVER ═══════════
   {
-    // Top header line: "Equity Research Report | Date | Exchange:TICKER"
-    sections.push(new Paragraph({
-      spacing: { before: 0, after: 0 },
-      children: [
-        new TextRun({ text: 'Equity Research Report', font: FONT, size: 18, bold: true, color: C.navy }),
-        new TextRun({ text: `  |  ${dateStr}  |  ${ticker}`, font: FONT, size: 18, color: C.mid }),
-      ],
-    }));
+    const exchangePrefix = q.exchange ? `${q.exchange}:` : '';
 
-    // Firm name with bottom rule
-    sections.push(new Paragraph({
-      spacing: { before: 20, after: 0 },
-      border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: C.navy } },
-      children: [new TextRun({
-        text: 'B.D. Sterling Capital Management',
-        font: FONT,
-        size: 17,
-        bold: true,
-        color: C.accent,
-      })],
+    // Top header line: left = "Equity Research Report | Date | Exchange:TICKER", right = firm name
+    sections.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 65, type: WidthType.PERCENTAGE },
+              borders: { top: TB_NONE, bottom: TB_NONE, left: TB_NONE, right: TB_NONE },
+              margins: { top: 0, bottom: 0, left: 0, right: 0 },
+              children: [new Paragraph({
+                spacing: { before: 0, after: 0 },
+                children: [
+                  new TextRun({ text: isResearchWorkspace ? 'Equity Research Primer' : 'Position Review', font: FONT_SERIF, size: 20, color: C.dark }),
+                  new TextRun({ text: ` | ${dateStr} | `, font: FONT_SERIF, size: 20, color: C.mid }),
+                  new TextRun({ text: `${exchangePrefix}${ticker}`, font: FONT_SERIF, size: 20, bold: true, color: C.dark }),
+                ],
+              })],
+            }),
+            new TableCell({
+              width: { size: 35, type: WidthType.PERCENTAGE },
+              borders: { top: TB_NONE, bottom: TB_NONE, left: TB_NONE, right: TB_NONE },
+              margins: { top: 0, bottom: 0, left: 0, right: 0 },
+              children: [new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                spacing: { before: 0, after: 0 },
+                children: [new TextRun({
+                  text: 'B.D. Sterling Capital Management',
+                  font: FONT_SERIF,
+                  size: 20,
+                  bold: true,
+                  color: C.dark,
+                })],
+              })],
+            }),
+          ],
+        }),
+      ],
     }));
 
     // Company name large
     sections.push(new Paragraph({
-      spacing: { before: 240, after: 120 },
+      spacing: { before: 160, after: 60 },
       children: [new TextRun({
         text: q.shortName || ticker,
         font: FONT_SERIF,
         bold: true,
-        size: 44,
-        color: C.navy,
+        size: 48,
+        color: '000000',
       })],
+    }));
+
+    // Thick horizontal rule
+    sections.push(new Paragraph({
+      spacing: { before: 60, after: 0 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: C.dark } },
+      children: [],
     }));
 
     // Info grid: Equity Rating | Price | Sector | Classification
     const priceStr = displayPrice ? `$${fmt(displayPrice)}` : (q.price ? `$${fmt(q.price)}` : '—');
     const starStr = equityRating > 0 ? '★'.repeat(equityRating) + '☆'.repeat(5 - equityRating) : '—';
-    const ratingLabel = equityRating > 0 ? 'BUY' : '—';
+
+    // Rating label based on equity rating
+    let ratingLabel = '—';
+    let ratingColor = C.mid;
+    let ratingBg = C.white;
+    if (equityRating === 5) { ratingLabel = 'STRONG BUY'; ratingColor = C.white; ratingBg = '1B6B4A'; }
+    else if (equityRating === 4) { ratingLabel = 'BUY'; ratingColor = C.white; ratingBg = '1B6B4A'; }
+    else if (equityRating === 3) { ratingLabel = 'HOLD'; ratingColor = C.white; ratingBg = C.amber; }
+    else if (equityRating === 2) { ratingLabel = 'SELL'; ratingColor = C.white; ratingBg = C.red; }
+    else if (equityRating === 1) { ratingLabel = 'STRONG SELL'; ratingColor = C.white; ratingBg = C.red; }
 
     // Determine market cap classification
     const mcap = q.marketCap ? Number(q.marketCap) : 0;
     const classification = mcap >= 200e9 ? 'Mega Large Cap' : mcap >= 10e9 ? 'Large Cap' : mcap >= 2e9 ? 'Mid Cap' : mcap >= 300e6 ? 'Small Cap' : mcap > 0 ? 'Micro Cap' : '—';
+
+    // Append ordinal suffix to day for pretty date
+    const dayNum = now.getDate();
+    const ordinal = [11,12,13].includes(dayNum % 100) ? 'th' : {1:'st',2:'nd',3:'rd'}[dayNum % 10] || 'th';
+    const datePretty = now.toLocaleDateString('en-US', { month: 'long' }) + ' ' + dayNum + ordinal + ', ' + now.getFullYear();
 
     // Labels row
     sections.push(new Table({
@@ -555,28 +596,28 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
       rows: [
         new TableRow({
           children: [
-            makeCell('Equity Rating', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
-            makeCell('Price', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
-            makeCell('Sector', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
-            makeCell('Classification', { bold: true, width: 25, borderTop: true, borderBottom: true, heavyBorder: true, color: C.navy, size: 17 }),
+            makeCell('Equity Rating', { bold: true, width: 25, borderTop: true, heavyBorder: true, color: C.dark, size: 19, font: FONT_SERIF }),
+            makeCell('Price', { bold: true, width: 25, borderTop: true, heavyBorder: true, color: C.dark, size: 19, font: FONT_SERIF }),
+            makeCell('Sector', { bold: true, width: 25, borderTop: true, heavyBorder: true, color: C.dark, size: 19, font: FONT_SERIF }),
+            makeCell('Classification', { bold: true, width: 25, borderTop: true, heavyBorder: true, color: C.dark, size: 19, font: FONT_SERIF }),
           ],
         }),
         new TableRow({
           children: [
             new TableCell({
               width: { size: 25, type: WidthType.PERCENTAGE },
-              borders: { top: TB_NONE, bottom: TB_NONE, left: TB_NONE, right: TB_NONE },
-              margins: { top: 40, bottom: 40, left: 80, right: 80 },
+              borders: { top: TB_NONE, bottom: TB_HEAVY, left: TB_NONE, right: TB_NONE },
+              margins: { top: 40, bottom: 60, left: 80, right: 80 },
               children: [new Paragraph({
                 children: [
-                  new TextRun({ text: ratingLabel, font: FONT, size: 18, bold: true, color: C.accent }),
-                  new TextRun({ text: `  ${starStr}`, font: FONT, size: 18, color: C.amber }),
+                  new TextRun({ text: ratingLabel, font: FONT, size: 18, bold: true, color: ratingColor, shading: equityRating > 0 ? { type: ShadingType.CLEAR, fill: ratingBg } : undefined }),
+                  new TextRun({ text: `  ${starStr}`, font: FONT, size: 20, color: 'D4880F' }),
                 ],
               })],
             }),
-            makeCell(`${priceStr} (${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`, { width: 25, size: 17 }),
-            makeCell(q.sector || '—', { width: 25, size: 17 }),
-            makeCell(classification, { width: 25, size: 17 }),
+            makeCell(`${priceStr} (${datePretty})`, { width: 25, size: 18, borderBottom: true, heavyBorder: true }),
+            makeCell(q.sector || '—', { width: 25, size: 18, borderBottom: true, heavyBorder: true }),
+            makeCell(classification, { width: 25, size: 18, borderBottom: true, heavyBorder: true }),
           ],
         }),
       ],
@@ -596,6 +637,13 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
         })],
       }));
       await appendRichContent(sections, thesis.assumptions);
+    }
+
+    // Price chart right below Investment Summary
+    const priceChart = findChart(chartImages, 'Price');
+    if (priceChart) {
+      figureNum++;
+      renderChart(sections, priceChart, figureNum, `${ticker} Stock Price`);
     }
   }
 
@@ -1062,6 +1110,12 @@ export async function exportReport({ ticker, thesis, model, tickerData, liveQuot
   });
 
   const blob = await Packer.toBlob(doc);
-  const filename = `${ticker}_Equity_Research_Report_${now.toISOString().slice(0, 10)}.docx`;
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  const dateTag = `${mm}.${dd}.${yy}`;
+  const filename = isResearchWorkspace
+    ? `${ticker} Equity Primer ${dateTag}.docx`
+    : `${ticker} Position Review ${dateTag}.docx`;
   saveAs(blob, filename);
 }

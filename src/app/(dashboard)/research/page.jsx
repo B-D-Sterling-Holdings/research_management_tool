@@ -1387,7 +1387,7 @@ export default function ResearchPage() {
                     ) : (
                       <FileDown size={16} />
                     )}
-                    {exporting ? 'Generating Report...' : 'Export Equity Research Report'}
+                    {exporting ? 'Generating Report...' : 'Export Research Primer'}
                   </button>
                 </div>
               </Card>

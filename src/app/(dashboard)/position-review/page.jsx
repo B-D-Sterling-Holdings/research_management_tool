@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { RefreshCw, Download, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn } from 'lucide-react';
+import { RefreshCw, Download, AlertTriangle, Save, Plus, Trash2, CheckCircle, FileDown, Check, Image as ImageIcon, X, ZoomIn, Star } from 'lucide-react';
 import Card from '@/components/Card';
 import StatCard from '@/components/StatCard';
 import LineChart from '@/components/charts/LineChart';
@@ -432,6 +432,7 @@ export default function ResearchPage() {
         tickerData,
         liveQuote: freshQuote,
         displayPrice: freshQuote?.price || displayPrice,
+        equityRating: thesis?.underwriting?.equityRating || 0,
       });
 
       if (prevTab !== 'fundamentals') {
@@ -918,21 +919,55 @@ export default function ResearchPage() {
                 {/* ── Valuation Model ── */}
                 <ValuationModel ref={modelRef} ticker={selectedTicker} livePrice={livePrice} />
 
-                {/* ── Export Button ── */}
-                <div className="flex justify-center pt-2 pb-4">
-                  <button
-                    onClick={handleExport}
-                    disabled={exporting}
-                    className="flex items-center gap-2.5 px-8 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-semibold rounded-2xl hover:from-gray-800 hover:to-gray-700 shadow-lg shadow-gray-300/40 hover:shadow-xl transition-all duration-200 disabled:opacity-50"
-                  >
-                    {exporting ? (
-                      <RefreshCw size={16} className="animate-spin" />
-                    ) : (
-                      <FileDown size={16} />
-                    )}
-                    {exporting ? 'Generating Report...' : 'Export Research Report'}
-                  </button>
-                </div>
+                {/* ── Equity Rating & Export ── */}
+                <Card>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">Equity Rating</label>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <button
+                            key={star}
+                            onClick={() => {
+                              const newRating = star === (thesis?.underwriting?.equityRating || 0) ? 0 : star;
+                              const updated = {
+                                ...(thesis || {}),
+                                underwriting: { ...((thesis || {}).underwriting || {}), equityRating: newRating },
+                              };
+                              setThesis(updated);
+                              setThesisDirty(true);
+                              saveThesis(updated);
+                            }}
+                            className="transition-colors"
+                          >
+                            <Star
+                              size={24}
+                              className={star <= (thesis?.underwriting?.equityRating || 0)
+                                ? 'text-amber-400 fill-amber-400'
+                                : 'text-gray-300 hover:text-amber-300'
+                              }
+                            />
+                          </button>
+                        ))}
+                        {(thesis?.underwriting?.equityRating || 0) > 0 && (
+                          <span className="ml-2 text-sm font-semibold text-gray-500">{thesis.underwriting.equityRating}/5</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleExport}
+                      disabled={exporting}
+                      className="flex items-center gap-2.5 px-8 py-3.5 bg-gradient-to-r from-gray-900 to-gray-800 text-white font-semibold rounded-2xl hover:from-gray-800 hover:to-gray-700 shadow-lg shadow-gray-300/40 hover:shadow-xl transition-all duration-200 disabled:opacity-50"
+                    >
+                      {exporting ? (
+                        <RefreshCw size={16} className="animate-spin" />
+                      ) : (
+                        <FileDown size={16} />
+                      )}
+                      {exporting ? 'Generating Report...' : 'Export Position Review'}
+                    </button>
+                  </div>
+                </Card>
               </div>
             ) : null
           )}

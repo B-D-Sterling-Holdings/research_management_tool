@@ -29,12 +29,13 @@ export async function fetchQuotes(tickers) {
       const [quote, summary] = await Promise.all([
         yahooFinance.quote(t),
         yahooFinance.quoteSummary(t, {
-          modules: ['financialData', 'defaultKeyStatistics'],
+          modules: ['financialData', 'defaultKeyStatistics', 'assetProfile'],
         }).catch(() => null),
       ]);
 
       const fin = summary?.financialData || {};
       const stats = summary?.defaultKeyStatistics || {};
+      const profile = summary?.assetProfile || {};
 
       const { price, session } = getEffectiveMarketPrice(quote);
       const regularMarketPrice = safeFloat(quote.regularMarketPrice);
@@ -46,6 +47,7 @@ export async function fetchQuotes(tickers) {
 
       result[t] = {
         shortName: quote.shortName || quote.longName || '',
+        exchange: quote.fullExchangeName || quote.exchange || '',
         price,
         regularMarketPrice,
         postMarketPrice,
@@ -66,6 +68,7 @@ export async function fetchQuotes(tickers) {
         roic: safeFloat(fin.returnOnEquity),
         fiftyTwoWeekHigh: safeFloat(quote.fiftyTwoWeekHigh),
         fiftyTwoWeekLow: safeFloat(quote.fiftyTwoWeekLow),
+        sector: profile.sector || '',
       };
     } catch (e) {
       result[t] = { price: null, error: e.message };
