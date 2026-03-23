@@ -96,7 +96,16 @@ function NavDropdown({ group, pathname, searchParams, isDark }) {
       </button>
 
       {open && (
-        <div className={`absolute top-full left-0 mt-1 w-52 rounded-xl shadow-lg py-1.5 z-50 ${isDark ? 'bg-gray-900/95 backdrop-blur-xl border border-white/10 shadow-black/30' : 'bg-white border border-gray-100 shadow-gray-200/80'}`}>
+        <div
+          className={`absolute top-full left-0 mt-1.5 w-52 rounded-2xl py-1.5 z-50 ${isDark ? 'border border-white/10 shadow-xl shadow-black/30' : 'border border-gray-200/60 shadow-xl shadow-gray-300/30'}`}
+          style={{
+            background: isDark
+              ? 'linear-gradient(160deg, rgba(15,23,42,0.97) 0%, rgba(10,15,30,0.98) 100%)'
+              : 'linear-gradient(160deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.97) 100%)',
+            backdropFilter: 'blur(24px) saturate(1.8)',
+            WebkitBackdropFilter: 'blur(24px) saturate(1.8)',
+          }}
+        >
           {group.items.map(({ href, label, icon: ItemIcon }) => {
             const isItemActive = href.includes('?')
               ? currentFullPath === href
@@ -140,11 +149,32 @@ export default function Navbar() {
   }, []);
 
   return (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-      isDark
-        ? scrolled ? 'bg-gray-950/80 backdrop-blur-md shadow-lg shadow-black/20' : 'bg-transparent backdrop-blur-[2px]'
-        : scrolled ? 'bg-white/80 backdrop-blur-md shadow-md' : 'bg-white/60 backdrop-blur-sm'
-    }`}>
+    <nav
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
+        isDark
+          ? scrolled ? 'shadow-lg shadow-black/20' : ''
+          : scrolled ? 'shadow-lg shadow-gray-200/50' : ''
+      }`}
+      style={{
+        background: isDark
+          ? scrolled
+            ? 'linear-gradient(135deg, rgba(3,7,18,0.85) 0%, rgba(10,20,35,0.82) 50%, rgba(3,7,18,0.85) 100%)'
+            : 'linear-gradient(135deg, rgba(3,7,18,0.4) 0%, rgba(10,20,35,0.3) 100%)'
+          : scrolled
+            ? 'linear-gradient(160deg, rgba(255,255,255,0.6) 0%, rgba(240,245,255,0.55) 30%, rgba(255,255,255,0.62) 60%, rgba(245,250,255,0.55) 100%)'
+            : 'linear-gradient(160deg, rgba(255,255,255,0.38) 0%, rgba(240,248,255,0.32) 50%, rgba(255,255,255,0.38) 100%)',
+        backdropFilter: scrolled ? 'blur(24px) saturate(2.0) brightness(1.08)' : 'blur(14px) saturate(1.6) brightness(1.05)',
+        WebkitBackdropFilter: scrolled ? 'blur(24px) saturate(2.0) brightness(1.08)' : 'blur(14px) saturate(1.6) brightness(1.05)',
+        borderBottom: isDark
+          ? '1px solid rgba(255,255,255,0.06)'
+          : scrolled ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.3)',
+        boxShadow: isDark
+          ? ''
+          : scrolled
+            ? '0 4px 30px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.6)'
+            : 'inset 0 1px 0 rgba(255,255,255,0.4)',
+      }}
+    >
       <div className="max-w-7xl mx-auto px-6 lg:px-12 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3 no-underline group">
           <Image
