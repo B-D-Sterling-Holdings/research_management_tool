@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Chart, registerables } from 'chart.js';
 import { Doughnut } from 'react-chartjs-2';
@@ -210,7 +210,7 @@ export default function DashboardPage() {
 
   // ── Chart logic (same as before) ──
 
-  const filtered = (() => {
+  const filtered = useMemo(() => {
     if (!navData) return [];
     const tf = TIMEFRAMES.find(t => t.label === timeframe);
     if (!tf || tf.days === null) return navData;
@@ -222,7 +222,7 @@ export default function DashboardPage() {
     cutoff.setDate(cutoff.getDate() - tf.days);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
     return navData.filter(d => d.date >= cutoffStr);
-  })();
+  }, [navData, timeframe]);
 
   const stats = (() => {
     if (!filtered.length) return null;
@@ -377,6 +377,9 @@ export default function DashboardPage() {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        transitions: {
+          active: { animation: { duration: 0 } },
+        },
         interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: {
