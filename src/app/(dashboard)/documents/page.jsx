@@ -7,15 +7,29 @@ import {
   FileSpreadsheet, BookOpen, Mail, Archive, Scale, Pencil, Check, ChevronDown, Download,
 } from 'lucide-react';
 
+const EQUITY_RESEARCH_SUBS = [
+  { value: 'equity_research_report', label: 'Research Reports' },
+  { value: 'equity_primer', label: 'Equity Primers' },
+  { value: 'position_review_report', label: 'Position Review Reports' },
+  { value: 'equity_research_other', label: 'Other Research' },
+];
+
+const EQUITY_RESEARCH_VALUES = new Set(EQUITY_RESEARCH_SUBS.map(s => s.value).concat('equity_research'));
+
 const CATEGORIES = [
   { value: 'shareholder_letter', label: 'Shareholder Letters', icon: Mail, color: 'blue' },
-  { value: 'equity_research', label: 'Equity Research', icon: BookOpen, color: 'emerald' },
+  { value: 'equity_research', label: 'Equity Research', icon: BookOpen, color: 'emerald', subs: EQUITY_RESEARCH_SUBS },
   { value: 'investor_memo', label: 'Investor Memos', icon: FileText, color: 'violet' },
   { value: 'financial_model', label: 'Financial Models', icon: FileSpreadsheet, color: 'amber' },
   { value: 'legal', label: 'Legal', icon: Scale, color: 'indigo' },
   { value: 'tax', label: 'Tax', icon: FileText, color: 'rose' },
   { value: 'other', label: 'Other', icon: Archive, color: 'gray' },
 ];
+
+// All flat category values for selects
+const ALL_CATEGORY_OPTIONS = CATEGORIES.flatMap(c =>
+  c.subs ? c.subs.map(s => ({ value: s.value, label: `${c.label} — ${s.label}` })) : [{ value: c.value, label: c.label }]
+);
 
 const COLOR_MAP = {
   blue:    { badge: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500', hover: 'hover:bg-blue-50', active: 'bg-blue-50 border-blue-200 text-blue-700' },
@@ -271,7 +285,14 @@ export default function DocumentsPage() {
   const filtered = useMemo(() => (
     documents
       .filter(d => {
-        if (filterCategory && d.category !== filterCategory) return false;
+        if (filterCategory) {
+          // If filtering by the parent "equity_research", include all sub-categories too
+          if (filterCategory === 'equity_research') {
+            if (!EQUITY_RESEARCH_VALUES.has(d.category)) return false;
+          } else if (d.category !== filterCategory) {
+            return false;
+          }
+        }
         if (filterTicker && d.ticker !== filterTicker) return false;
         if (searchQuery) {
           const q = searchQuery.toLowerCase();
@@ -289,7 +310,13 @@ export default function DocumentsPage() {
 
   const categoryCounts = useMemo(() => {
     const counts = {};
-    documents.forEach(d => { counts[d.category] = (counts[d.category] || 0) + 1; });
+    documents.forEach(d => {
+      counts[d.category] = (counts[d.category] || 0) + 1;
+      // Also count toward the parent equity_research group
+      if (EQUITY_RESEARCH_VALUES.has(d.category) && d.category !== 'equity_research') {
+        counts['equity_research'] = (counts['equity_research'] || 0) + 1;
+      }
+    });
     return counts;
   }, [documents]);
 
@@ -446,7 +473,7 @@ export default function DocumentsPage() {
                   onChange={e => setUploadCategory(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
                 >
-                  {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  {ALL_CATEGORY_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </div>
               <div>
@@ -518,23 +545,52 @@ export default function DocumentsPage() {
                 const count = categoryCounts[cat.value] || 0;
                 const colors = COLOR_MAP[cat.color];
                 const isActive = filterCategory === cat.value;
+                const isSubActive = cat.subs && cat.subs.some(s => filterCategory === s.value);
                 const Icon = cat.icon;
+                const showSubs = cat.subs && (isActive || isSubActive);
                 return (
-                  <button
-                    key={cat.value}
-                    onClick={() => setFilterCategory(prev => prev === cat.value ? '' : cat.value)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                      isActive ? `${colors.active} border` : `text-gray-600 ${colors.hover} border border-transparent`
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Icon size={15} className={isActive ? '' : 'text-gray-400'} />
-                      <span className="truncate">{cat.label}</span>
-                    </div>
-                    {count > 0 && (
-                      <span className={`text-xs font-bold ${isActive ? '' : 'text-gray-400'}`}>{count}</span>
+                  <div key={cat.value}>
+                    <button
+                      onClick={() => setFilterCategory(prev => prev === cat.value ? '' : cat.value)}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                        isActive ? `${colors.active} border` : isSubActive ? `text-emerald-700 ${colors.hover} border border-transparent` : `text-gray-600 ${colors.hover} border border-transparent`
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        {cat.subs ? (
+                          <ChevronRight size={13} className={`transition-transform duration-200 ${showSubs ? 'rotate-90' : ''} ${isActive || isSubActive ? '' : 'text-gray-400'}`} />
+                        ) : (
+                          <Icon size={15} className={isActive ? '' : 'text-gray-400'} />
+                        )}
+                        <span className="truncate">{cat.label}</span>
+                      </div>
+                      {count > 0 && (
+                        <span className={`text-xs font-bold ${isActive || isSubActive ? '' : 'text-gray-400'}`}>{count}</span>
+                      )}
+                    </button>
+                    {showSubs && (
+                      <div className="ml-3 mt-0.5 space-y-0.5 border-l-2 border-emerald-100 pl-2">
+                        {cat.subs.map(sub => {
+                          const subCount = categoryCounts[sub.value] || 0;
+                          const subActive = filterCategory === sub.value;
+                          return (
+                            <button
+                              key={sub.value}
+                              onClick={() => setFilterCategory(prev => prev === sub.value ? cat.value : sub.value)}
+                              className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[13px] font-medium transition-all ${
+                                subActive ? `${colors.active} border` : `text-gray-500 hover:text-gray-700 hover:bg-emerald-50/50 border border-transparent`
+                              }`}
+                            >
+                              <span className="truncate">{sub.label}</span>
+                              {subCount > 0 && (
+                                <span className={`text-[11px] font-bold ${subActive ? '' : 'text-gray-400'}`}>{subCount}</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -622,7 +678,17 @@ export default function DocumentsPage() {
           ) : (
             <div className="space-y-2">
               {visibleDocs.map((doc, idx) => {
-                const cat = CATEGORIES.find(c => c.value === doc.category);
+                let cat = CATEGORIES.find(c => c.value === doc.category);
+                let subLabel = null;
+                if (!cat) {
+                  // Check if it's a subcategory
+                  for (const c of CATEGORIES) {
+                    if (c.subs) {
+                      const sub = c.subs.find(s => s.value === doc.category);
+                      if (sub) { cat = c; subLabel = sub.label; break; }
+                    }
+                  }
+                }
                 const colors = COLOR_MAP[cat?.color || 'gray'];
                 const isDeleting = confirmDeleteId === doc.id;
                 const isEditing = editingId === doc.id;
@@ -662,7 +728,7 @@ export default function DocumentsPage() {
                         <div className="flex items-center gap-3 mt-1.5">
                           <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colors.badge}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
-                            {cat?.label || doc.category}
+                            {subLabel || cat?.label || doc.category}
                           </span>
                           {doc.notes && (
                             <span className="text-xs text-gray-400 truncate max-w-[200px]">{doc.notes}</span>
@@ -754,7 +820,7 @@ export default function DocumentsPage() {
                                 onChange={(e) => setEditForm(f => ({ ...f, category: e.target.value }))}
                                 className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-300 transition-all"
                               >
-                                {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                {ALL_CATEGORY_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                               </select>
                             </div>
                             <div>
