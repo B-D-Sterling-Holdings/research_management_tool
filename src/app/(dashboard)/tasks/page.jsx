@@ -720,6 +720,9 @@ export default function TaskBoardPage() {
     if (editingId && editRef.current) {
       editRef.current.focus();
       editRef.current.select();
+      // Auto-size textarea to fit content
+      editRef.current.style.height = 'auto';
+      editRef.current.style.height = editRef.current.scrollHeight + 'px';
     }
   }, [editingId]);
 
@@ -727,6 +730,8 @@ export default function TaskBoardPage() {
     if (editingSubId && subEditRef.current) {
       subEditRef.current.focus();
       subEditRef.current.select();
+      subEditRef.current.style.height = 'auto';
+      subEditRef.current.style.height = subEditRef.current.scrollHeight + 'px';
     }
   }, [editingSubId]);
 
@@ -1259,7 +1264,7 @@ export default function TaskBoardPage() {
                           <div
                             className={`rounded-xl border transition-all duration-200 ${
                               isEditing
-                                ? 'bg-white border-emerald-200 shadow-sm'
+                                ? 'bg-white border-emerald-200 shadow-sm group'
                                 : 'bg-gray-50/70 border-gray-100 hover:border-gray-200 group'
                             }`}
                             onBlur={(e) => {
@@ -1268,11 +1273,11 @@ export default function TaskBoardPage() {
                               }
                             }}
                           >
-                            <div className="flex items-center gap-3 px-4 py-3">
+                            <div className={`flex gap-3 px-4 py-3 ${isEditing ? 'items-start' : 'items-center'}`}>
                               {/* Drag handle */}
                               <button
                                 {...dragHandleProps}
-                                className="flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition-colors touch-none"
+                                className={`flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition-colors touch-none ${isEditing ? 'mt-0.5' : ''}`}
                                 tabIndex={-1}
                               >
                                 <GripVertical size={16} />
@@ -1281,7 +1286,7 @@ export default function TaskBoardPage() {
                               {/* Expand toggle */}
                               <button
                                 onClick={() => toggleExpanded(task.id)}
-                                className="flex-shrink-0 w-4 text-gray-400 hover:text-gray-600 transition-colors"
+                                className={`flex-shrink-0 w-4 text-gray-400 hover:text-gray-600 transition-colors ${isEditing ? 'mt-0.5' : ''}`}
                               >
                                 {hasSubtasks ? (
                                   isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
@@ -1293,7 +1298,7 @@ export default function TaskBoardPage() {
                               {/* Checkbox */}
                               <button
                                 onClick={() => toggleDone(task.id, task.done)}
-                                className={`flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200 ${
+                                className={`flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-200 ${isEditing ? 'mt-0.5' : ''} ${
                                   task.done
                                     ? 'bg-emerald-500 border-emerald-500 text-white'
                                     : 'border-gray-300 hover:border-emerald-400'
@@ -1304,16 +1309,21 @@ export default function TaskBoardPage() {
 
                               {/* Title */}
                               {isEditing ? (
-                                <input
+                                <textarea
                                   ref={editRef}
-                                  type="text"
                                   value={editingTitle}
-                                  onChange={e => setEditingTitle(e.target.value)}
+                                  onChange={e => {
+                                    setEditingTitle(e.target.value);
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = e.target.scrollHeight + 'px';
+                                  }}
                                   onKeyDown={e => {
-                                    if (e.key === 'Enter') saveEdit(task.id, { thenAddTask: true });
+                                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(task.id, { thenAddTask: true }); }
                                     if (e.key === 'Escape') setEditingId(null);
                                   }}
-                                  className="flex-1 bg-transparent text-sm text-gray-900 outline-none"
+                                  rows={1}
+                                  className="flex-1 bg-transparent text-sm text-gray-900 outline-none resize-none leading-relaxed"
+                                  style={{ overflow: 'hidden' }}
                                 />
                               ) : (
                                 <span
@@ -1327,7 +1337,7 @@ export default function TaskBoardPage() {
                               {/* Right side: tags + actions */}
                               <div className="flex items-center gap-0 ml-auto flex-shrink-0">
                                 {/* Subtask count badge */}
-                                {hasSubtasks && !isEditing && (
+                                {hasSubtasks && (
                                   <span className="text-xs text-gray-400 mr-2">
                                     {doneSubtasks}/{subtasks.length}
                                   </span>
@@ -1335,7 +1345,7 @@ export default function TaskBoardPage() {
 
                                 {/* Status tag */}
                                 <div className="relative flex-shrink-0 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200 max-w-0 overflow-hidden group-hover:max-w-[120px] group-hover:mr-2" ref={el => { statusAnchorRefs.current[`task-${task.id}`] = el; }}
-                                  style={task.status ? { maxWidth: '120px', marginRight: '8px' } : {}}
+                                  style={task.status || isEditing ? { maxWidth: '120px', marginRight: '8px' } : {}}
                                 >
                                   <StatusTag
                                     status={task.status}
@@ -1357,7 +1367,7 @@ export default function TaskBoardPage() {
 
                                 {/* Assignee tag */}
                                 <div className="relative flex-shrink-0 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200 max-w-0 overflow-hidden group-hover:max-w-[120px] group-hover:mr-2" ref={el => { assigneeAnchorRefs.current[`task-${task.id}`] = el; }}
-                                  style={task.assignee ? { maxWidth: '120px', marginRight: '8px' } : {}}
+                                  style={task.assignee || isEditing ? { maxWidth: '120px', marginRight: '8px' } : {}}
                                 >
                                   <AssigneeTag
                                     assignee={task.assignee}
@@ -1383,7 +1393,8 @@ export default function TaskBoardPage() {
 
                                 {/* Actions */}
                                 {!isEditing && (
-                                  <div className="flex items-center gap-0 max-w-0 overflow-hidden opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200">
+                                  <div className="flex items-center gap-0 max-w-0 overflow-hidden opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 transition-all duration-700 ease-in-out delay-0 group-hover:delay-200"
+                                  >
                                     <button
                                       onClick={() => {
                                         setAddingSubtask(task.id);
@@ -1446,7 +1457,7 @@ export default function TaskBoardPage() {
                                   <div
                                     key={sub.id}
                                     ref={el => { subRowRefs.current[sub.id] = el; }}
-                                    className={`flex items-center gap-3 px-4 py-2 rounded-lg group/sub hover:bg-gray-50 transition-all duration-150 ${
+                                    className={`flex ${isEditingSub ? 'items-start' : 'items-center'} gap-3 px-4 py-2 rounded-lg group/sub hover:bg-gray-50 transition-all duration-150 ${
                                       isDraggingThis ? 'bg-emerald-50 shadow-sm ring-1 ring-emerald-200 scale-[1.01]' : ''
                                     } ${subDragId && !isDraggingThis ? 'transition-all duration-200' : ''}`}
                                   >
@@ -1468,17 +1479,22 @@ export default function TaskBoardPage() {
                                     </button>
 
                                     {isEditingSub ? (
-                                      <input
+                                      <textarea
                                         ref={subEditRef}
-                                        type="text"
                                         value={editingSubTitle}
-                                        onChange={e => setEditingSubTitle(e.target.value)}
+                                        onChange={e => {
+                                          setEditingSubTitle(e.target.value);
+                                          e.target.style.height = 'auto';
+                                          e.target.style.height = e.target.scrollHeight + 'px';
+                                        }}
                                         onKeyDown={e => {
-                                          if (e.key === 'Enter') { e.preventDefault(); saveSubtaskEdit(task.id, sub.id, { thenAdd: true }); }
+                                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveSubtaskEdit(task.id, sub.id, { thenAdd: true }); }
                                           if (e.key === 'Escape') setEditingSubId(null);
                                         }}
                                         onBlur={() => saveSubtaskEdit(task.id, sub.id)}
-                                        className="flex-1 bg-white border border-emerald-300 rounded-lg px-2 py-0.5 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-emerald-500"
+                                        rows={1}
+                                        className="flex-1 bg-white border border-emerald-300 rounded-lg px-2 py-0.5 text-sm text-gray-900 outline-none focus:ring-1 focus:ring-emerald-500 resize-none leading-relaxed"
+                                        style={{ overflow: 'hidden' }}
                                       />
                                     ) : (
                                       <span
@@ -1556,33 +1572,40 @@ export default function TaskBoardPage() {
                                 );
                               })}
 
-                              {/* Add subtask input */}
+                              {/* Add subtask input — inline row */}
                               {addingSubtask === task.id && (
-                                <div className="flex items-center gap-2 px-4 py-1.5">
-                                  <input
-                                    autoFocus
-                                    type="text"
-                                    placeholder="Subtask title..."
-                                    value={newSubtaskTitle}
-                                    onChange={e => setNewSubtaskTitle(e.target.value)}
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter') addSubtask(task.id, { keepOpen: true });
-                                      if (e.key === 'Escape') setAddingSubtask(null);
-                                    }}
-                                    className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
-                                  />
-                                  <button
-                                    onClick={() => addSubtask(task.id)}
-                                    className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg transition-colors"
-                                  >
-                                    Add
-                                  </button>
-                                  <button
-                                    onClick={() => setAddingSubtask(null)}
-                                    className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                                  >
-                                    <X size={14} />
-                                  </button>
+                                <div className="animate-slide-in-down">
+                                  <div className="flex items-center gap-3 px-4 py-2 rounded-lg">
+                                    <span className="flex-shrink-0 text-gray-200">
+                                      <GripVertical size={12} />
+                                    </span>
+                                    <span className="flex-shrink-0 w-4 h-4 rounded border-2 border-gray-200" />
+                                    <input
+                                      autoFocus
+                                      type="text"
+                                      placeholder="Subtask title..."
+                                      value={newSubtaskTitle}
+                                      onChange={e => setNewSubtaskTitle(e.target.value)}
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter') {
+                                          if (newSubtaskTitle.trim()) {
+                                            addSubtask(task.id, { keepOpen: true });
+                                          } else {
+                                            setAddingSubtask(null);
+                                          }
+                                        }
+                                        if (e.key === 'Escape') setAddingSubtask(null);
+                                      }}
+                                      onBlur={() => {
+                                        if (newSubtaskTitle.trim()) {
+                                          addSubtask(task.id);
+                                        } else {
+                                          setAddingSubtask(null);
+                                        }
+                                      }}
+                                      className="flex-1 bg-transparent text-sm text-gray-600 placeholder-gray-400 outline-none"
+                                    />
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -1598,33 +1621,43 @@ export default function TaskBoardPage() {
                 </DroppableSection>
                 )}
 
-                {/* Add Task Input — always at bottom of section */}
+                {/* Add Task Input — inline row that looks like a task */}
                 {adding === key && !atCapacity && (
-                  <div className="flex items-center gap-3 mt-3">
-                    <input
-                      autoFocus
-                      type="text"
-                      placeholder="Task title..."
-                      value={newTaskTitle}
-                      onChange={e => setNewTaskTitle(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleAddTask(key, { keepOpen: true });
-                        if (e.key === 'Escape') setAdding(null);
-                      }}
-                      className="flex-1 bg-gray-50/50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200"
-                    />
-                    <button
-                      onClick={() => handleAddTask(key)}
-                      className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl transition-colors"
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => setAdding(null)}
-                      className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <X size={16} />
-                    </button>
+                  <div className="animate-slide-in-down mt-2">
+                    <div className="rounded-xl border border-emerald-200 bg-white shadow-sm">
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <span className="flex-shrink-0 text-gray-200">
+                          <GripVertical size={16} />
+                        </span>
+                        <span className="flex-shrink-0 w-4" />
+                        <span className="flex-shrink-0 w-5 h-5 rounded-md border-2 border-gray-200" />
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Task title..."
+                          value={newTaskTitle}
+                          onChange={e => setNewTaskTitle(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              if (newTaskTitle.trim()) {
+                                handleAddTask(key, { keepOpen: true });
+                              } else {
+                                setAdding(null);
+                              }
+                            }
+                            if (e.key === 'Escape') setAdding(null);
+                          }}
+                          onBlur={() => {
+                            if (newTaskTitle.trim()) {
+                              handleAddTask(key);
+                            } else {
+                              setAdding(null);
+                            }
+                          }}
+                          className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
