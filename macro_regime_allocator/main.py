@@ -109,6 +109,23 @@ def main():
             bar = "█" * bar_len + "░" * (20 - bar_len)
             print(f"  │  {name:>8s}: {weights[i]:6.1%}  {bar} │")
         print(f"  └─────────────────────────────────┘")
+
+        # Save live prediction so the web UI can serve it
+        import json
+        live_pred = {
+            "rebalance_date": latest_date.strftime("%Y-%m-%d"),
+            "allocation_month": allocation_month.strftime("%Y-%m-%d"),
+            "prob_equity": float(proba[0]),
+            "prob_tbills": float(proba[1]),
+            "weight_equity": float(weights[0]),
+            "weight_tbills": float(weights[1]),
+            "overlay": overlay_reason,
+            "market_signals": {k: float(v) for k, v in sorted(market_data.items())} if market_data else {},
+        }
+        os.makedirs(cfg.output_dir, exist_ok=True)
+        with open(os.path.join(cfg.output_dir, "live_prediction.json"), "w") as f:
+            json.dump(live_pred, f, indent=2)
+        print(f"  Saved live prediction to {cfg.output_dir}/live_prediction.json")
         return
 
     print("=" * 60)
@@ -191,6 +208,23 @@ def main():
             bar = "█" * bar_len + "░" * (20 - bar_len)
             print(f"  │  {name:>8s}: {weights[i]:6.1%}  {bar} │")
         print(f"  └─────────────────────────────────┘")
+
+        # Save live prediction so the web UI can serve it
+        import json
+        live_pred = {
+            "rebalance_date": latest_date.strftime("%Y-%m-%d"),
+            "allocation_month": allocation_month.strftime("%Y-%m-%d"),
+            "prob_equity": float(proba[0]),
+            "prob_tbills": float(proba[1]),
+            "weight_equity": float(weights[0]),
+            "weight_tbills": float(weights[1]),
+            "overlay": overlay_reason,
+            "market_signals": {k: float(v) for k, v in sorted(market_data.items())} if market_data else {},
+        }
+        os.makedirs(cfg.output_dir, exist_ok=True)
+        with open(os.path.join(cfg.output_dir, "live_prediction.json"), "w") as f:
+            json.dump(live_pred, f, indent=2)
+        print(f"  Saved live prediction to {cfg.output_dir}/live_prediction.json")
 
     # Step 6: Evaluate
     print("\n── Step 6: Evaluation ────────────────────────────────────")

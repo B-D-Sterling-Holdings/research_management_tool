@@ -1,31 +1,38 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-const MACRO_DIR = path.resolve(process.cwd(), 'macro_regime_allocator');
-const PLOT_DIR = path.join(MACRO_DIR, 'outputs', 'plots');
+import { supabase } from '@/lib/supabase';
 
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const name = searchParams.get('name');
 
-    if (!name) {
-      // Return list of available plots
-      if (!fs.existsSync(PLOT_DIR)) return NextResponse.json({ plots: [] });
-      const plots = fs.readdirSync(PLOT_DIR).filter((f) => f.endsWith('.png'));
-      return NextResponse.json({ plots });
+    // Get the latest results with plots from Supabase
+    const { data, error } = await supabase
+      .from('macro_regime_results')
+      .select('plots')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !data || !data.plots) {
+      if (!name) return NextResponse.json({ plots: [] });
+      return NextResponse.json({ error: 'No plots available' }, { status: 404 });
     }
 
-    // Sanitize filename
-    const safeName = path.basename(name);
-    const filePath = path.join(PLOT_DIR, safeName.endsWith('.png') ? safeName : `${safeName}.png`);
+    if (!name) {
+      // Return list of available plots
+      return NextResponse.json({ plots: Object.keys(data.plots) });
+    }
 
-    if (!fs.existsSync(filePath)) {
+    // Get specific plot
+    const safeName = name.endsWith('.png') ? name : `${name}.png`;
+    const base64 = data.plots[safeName];
+
+    if (!base64) {
       return NextResponse.json({ error: 'Plot not found' }, { status: 404 });
     }
 
-    const buffer = fs.readFileSync(filePath);
+    const buffer = Buffer.from(base64, 'base64');
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'image/png',
