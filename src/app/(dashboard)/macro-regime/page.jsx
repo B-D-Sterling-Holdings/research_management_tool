@@ -3,14 +3,14 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend,
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Filler, Tooltip, Legend,
 } from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { Play, Zap, RefreshCw, Shield, Settings, Check, Loader2, Terminal, ChevronDown } from 'lucide-react';
+import { Line, Doughnut } from 'react-chartjs-2';
+import { Play, Zap, RefreshCw, Shield, Settings, Check, Loader2, Terminal, ChevronDown, Wrench } from 'lucide-react';
 import Card from '@/components/Card';
 import Toast from '@/components/Toast';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, ArcElement, Filler, Tooltip, Legend);
 
 /* ── Config ──────────────────────────────────────────────────────── */
 
@@ -626,103 +626,154 @@ export default function MacroRegimePage() {
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-7xl px-6 py-8">
 
-      {/* ━━ TOP: Signal ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="mb-10">
-        <h1 className="text-sm font-bold uppercase tracking-wider text-gray-900 mb-1">Macro Regime</h1>
+      <h1 className="text-sm font-bold uppercase tracking-wider text-gray-900 mb-6">Macro Regime</h1>
 
-        {sig ? (
-          <div className="mt-4">
-            {/* Big number + regime */}
-            <div className="flex items-end gap-3 mb-4">
-              <span className="text-6xl font-semibold tabular-nums leading-none text-gray-900">{eq}%</span>
-              <div className="pb-1">
-                <span className="text-sm text-gray-400">equity allocation</span>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className={`h-1.5 w-1.5 rounded-full ${rDot}`} />
-                  <span className="text-xs text-gray-500">{regime}</span>
+      {/* ━━ TOP ROW: Signal + Chart (left) | Portfolio Allocation (right) ━━ */}
+      <div className={`mb-10 grid gap-6 ${allocTickers.length > 0 ? 'lg:grid-cols-[5fr_7fr]' : ''}`}>
+
+        {/* ── LEFT COLUMN: Pie + Allocation Chart ── */}
+        <div className="space-y-6">
+          {/* Equity Allocation Pie */}
+          {sig ? (
+            <div className="rounded-2xl border border-gray-100 p-5 relative">
+              {/* Date tags - top right */}
+              <div className="absolute top-3 right-3 text-[9px] text-gray-400">
+                <span>{sig.allocationFor || '--'}</span>
+                <span className="mx-1">·</span>
+                <span>thru {sig.dataAsOf || '--'}</span>
+              </div>
+
+              {/* Doughnut with regime label centered */}
+              <div className="relative mx-auto w-40 h-40 mb-4 mt-2">
+                <Doughnut
+                  data={{
+                    labels: ['Equity', 'T-Bills'],
+                    datasets: [{
+                      data: [eq, 100 - eq],
+                      backgroundColor: ['#10b981', '#e5e7eb'],
+                      borderWidth: 0,
+                      cutout: '75%',
+                    }],
+                  }}
+                  options={{
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        backgroundColor: '#fff', titleColor: '#111', bodyColor: '#6b7280',
+                        borderColor: '#e5e7eb', borderWidth: 1, padding: 8,
+                        callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed}%` },
+                      },
+                    },
+                  }}
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-bold tabular-nums text-gray-900">{eq}%</span>
+                  <span className={`text-[10px] font-medium ${sig?.regime === 'RISK ON' ? 'text-emerald-600' : sig?.regime === 'RISK OFF' ? 'text-red-500' : 'text-amber-600'}`}>{regime}</span>
+                </div>
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+                  <span className="text-[11px] text-gray-600">Equity {eq}%</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-gray-200" />
+                  <span className="text-[11px] text-gray-600">T-Bills {100 - eq}%</span>
                 </div>
               </div>
             </div>
+          ) : (
+            <div className="rounded-2xl border border-gray-100 p-5">
+              <p className="text-sm text-gray-400">
+                {predictLoading ? <Loader2 size={14} className="inline animate-spin" /> : 'No signal yet. Run a backtest below.'}
+              </p>
+            </div>
+          )}
 
-            {/* Allocation bar */}
-            <div className="h-2 rounded-full bg-gray-100 mb-3">
-              <div className="h-full rounded-full bg-gray-900 transition-all duration-700" style={{ width: `${eq}%` }} />
+          {/* Allocation Over Time Chart */}
+          {cr.length > 0 && (
+            <div className="rounded-2xl border border-gray-100 p-4">
+              <h3 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">Allocation Over Time</h3>
+              <div className="h-48">
+                <Line
+                  data={{ labels: lbl, datasets: [
+                    { label: 'Equity', data: cr.map(r => r.weight_equity), borderColor: '#111', backgroundColor: 'rgba(0,0,0,0.05)', fill: true, stepped: 'before', borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3 },
+                    { label: 'T-Bills', data: cr.map(r => r.weight_equity != null ? 1 : null), borderColor: 'transparent', backgroundColor: 'rgba(0,0,0,0.02)', fill: true, stepped: 'before', borderWidth: 0, pointRadius: 0, pointHoverRadius: 0 },
+                  ]}}
+                  options={{
+                    ...cOpts01(cOpts('pct')),
+                    plugins: { ...cOpts01(cOpts('pct')).plugins, legend: { display: false },
+                      tooltip: { ...cOpts01(cOpts('pct')).plugins.tooltip,
+                        callbacks: { label: ctx => ctx.datasetIndex === 1 ? null : [`Eq ${(ctx.parsed.y * 100).toFixed(1)}%`, `TB ${((1 - ctx.parsed.y) * 100).toFixed(1)}%`] },
+                        filter: item => item.datasetIndex === 0,
+                      },
+                    },
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT COLUMN: Portfolio Allocation ── */}
+        {allocTickers.length > 0 && (
+          <div className="rounded-2xl border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Portfolio Allocation</h2>
+              <button onClick={syncWeightsFromPortfolio} disabled={syncingWeights}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-400 hover:border-gray-300 hover:text-gray-600 disabled:opacity-40"
+                title="Sync weights from current portfolio holdings">
+                <RefreshCw size={10} className={syncingWeights ? 'animate-spin' : ''} /> Sync
+              </button>
             </div>
 
-            {/* Meta line */}
-            <p className="text-xs text-gray-400">
-              {sig.allocationFor || '--'}
-              <span className="mx-2 text-gray-200">·</span>
-              data thru {sig.dataAsOf || '--'}
-              <span className="mx-2 text-gray-200">·</span>
-              P(equity) {sig.probEquity != null ? `${Math.round(sig.probEquity * 100)}%` : '--'}
-              {sig.overlay && sig.overlay !== 'none' && (
-                <><span className="mx-2 text-gray-200">·</span><span className="text-red-500">overlay: {sig.overlay}</span></>
-              )}
-            </p>
+            {/* Total bar */}
+            <div className="mb-3 flex items-center gap-2">
+              <div className="h-1.5 flex-1 rounded-full bg-gray-100 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-300 ${allocTotal > 100 ? 'bg-red-400' : allocTotal === 100 ? 'bg-emerald-500' : 'bg-amber-400'}`}
+                  style={{ width: `${Math.min(allocTotal, 100)}%` }} />
+              </div>
+              <span className={`text-[11px] font-mono tabular-nums ${allocTotal > 100 ? 'text-red-500' : allocTotal === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {allocTotal.toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {allocTickers.map(ticker => {
+                const risk = stockRisks[ticker];
+                return (
+                  <div key={ticker} className="rounded-xl border border-gray-50 bg-gray-50/40 px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-medium text-gray-800">{ticker}</span>
+                      {risk != null && (
+                        <span className="text-[10px] font-mono text-gray-400" title="Composite risk">
+                          {(risk * 100).toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="number" min="0" max="100" step="0.5"
+                        value={allocWeights[ticker] ?? ''}
+                        onChange={e => handleAllocChange(ticker, e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 pr-6 text-[12px] font-mono text-gray-700 tabular-nums focus:border-gray-400 focus:outline-none"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-300">%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        ) : (
-          <p className="mt-4 text-sm text-gray-400">
-            {predictLoading ? <Loader2 size={14} className="inline animate-spin" /> : 'No signal yet. Run a backtest below.'}
-          </p>
         )}
       </div>
 
-      {/* ━━ PORTFOLIO ALLOCATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {allocTickers.length > 0 && (
-        <div className="mb-10">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Portfolio Allocation</h2>
-            <button onClick={syncWeightsFromPortfolio} disabled={syncingWeights}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-400 hover:border-gray-300 hover:text-gray-600 disabled:opacity-40"
-              title="Sync weights from current portfolio holdings">
-              <RefreshCw size={10} className={syncingWeights ? 'animate-spin' : ''} /> Sync
-            </button>
-          </div>
-
-          {/* Total bar */}
-          <div className="mb-3 flex items-center gap-2">
-            <div className="h-1.5 flex-1 rounded-full bg-gray-100 overflow-hidden">
-              <div className={`h-full rounded-full transition-all duration-300 ${allocTotal > 100 ? 'bg-red-400' : allocTotal === 100 ? 'bg-emerald-500' : 'bg-amber-400'}`}
-                style={{ width: `${Math.min(allocTotal, 100)}%` }} />
-            </div>
-            <span className={`text-[11px] font-mono tabular-nums ${allocTotal > 100 ? 'text-red-500' : allocTotal === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {allocTotal.toFixed(1)}%
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-            {allocTickers.map(ticker => {
-              const risk = stockRisks[ticker];
-              return (
-                <div key={ticker} className="rounded-xl border border-gray-100 px-3 py-2.5">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-medium text-gray-800">{ticker}</span>
-                    {risk != null && (
-                      <span className="text-[10px] font-mono text-gray-400" title="Composite risk">
-                        {(risk * 100).toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="number" min="0" max="100" step="0.5"
-                      value={allocWeights[ticker] ?? ''}
-                      onChange={e => handleAllocChange(ticker, e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 px-2 py-1.5 pr-6 text-[12px] font-mono text-gray-700 tabular-nums focus:border-gray-400 focus:outline-none"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-300">%</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ━━ MACRO OVERLAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━ MACRO-ADJUSTED WEIGHTS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {overlay && allocTickers.length > 0 && (
         <div className="mb-10">
           <div className="flex items-center justify-between mb-3">
@@ -744,32 +795,33 @@ export default function MacroRegimePage() {
             </button>
           </div>
 
-          {/* Overlay config */}
+          {/* Overlay config - cleaned up */}
           {showOverlayCfg && (
-            <div className="mb-3 rounded-xl border border-gray-100 p-3">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <div className="mb-4 rounded-2xl border border-gray-100 p-4">
+              <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Overlay Parameters</h3>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
                 {[
-                  { key: 'alpha', label: 'Alpha', step: 0.05, desc: 'How much to weight volatility vs composite risk when scoring aggressiveness. 0 = composite only, 1 = volatility only.' },
-                  { key: 'derisk_start', label: 'Derisk Start', step: 0.05, desc: 'Regime score (M) below which the overlay begins trimming. Above this, portfolio stays at base weights.' },
-                  { key: 'max_trim', label: 'Max Trim', step: 0.05, desc: 'Largest relative cut to any stock. 0.20 means a 10% position can drop to 8% at most.' },
-                  { key: 'max_boost', label: 'Max Boost', step: 0.05, desc: 'Largest relative boost for defensive names. 0.10 means a 10% position can rise to 11% at most.' },
-                  { key: 'cash_min', label: 'Cash Min', step: 0.001, desc: 'Minimum cash allocation in strong regimes (decimal). 0.002 = 0.2%.' },
-                  { key: 'cash_max', label: 'Cash Max', step: 0.005, desc: 'Maximum cash allocation in worst regime (decimal). 0.02 = 2.0%.' },
+                  { key: 'alpha', label: 'Alpha', step: 0.05, desc: 'Vol vs risk blend (0=risk, 1=vol)' },
+                  { key: 'derisk_start', label: 'Derisk Start', step: 0.05, desc: 'M threshold to begin trimming' },
+                  { key: 'max_trim', label: 'Max Trim', step: 0.05, desc: 'Max relative cut per stock' },
+                  { key: 'max_boost', label: 'Max Boost', step: 0.05, desc: 'Max relative boost per stock' },
+                  { key: 'cash_min', label: 'Cash Floor', step: 0.001, desc: 'Min cash in strong regimes' },
+                  { key: 'cash_max', label: 'Cash Ceiling', step: 0.005, desc: 'Max cash in weak regimes' },
                 ].map(f => (
                   <div key={f.key}>
-                    <label className="mb-0.5 block text-[10px] text-gray-400">{f.label}</label>
+                    <label className="mb-1 block text-[10px] font-medium text-gray-500">{f.label}</label>
                     <input type="number" step={f.step} value={deriskCfg[f.key] ?? ''}
                       onChange={e => setDeriskCfg(p => ({ ...p, [f.key]: Number(e.target.value) }))}
-                      className="w-full rounded-lg border border-gray-200 px-2 py-1 text-[11px] text-gray-700 focus:border-gray-400 focus:outline-none" />
-                    <p className="mt-0.5 text-[9px] leading-tight text-gray-300">{f.desc}</p>
+                      className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-[11px] font-mono text-gray-700 focus:border-gray-400 focus:outline-none" />
+                    <p className="mt-0.5 text-[9px] text-gray-400">{f.desc}</p>
                   </div>
                 ))}
-                <div className="flex items-end">
-                  <button onClick={saveConfig}
-                    className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-2.5 py-1 text-[11px] text-white">
-                    <Check size={9} /> Save
-                  </button>
-                </div>
+              </div>
+              <div className="mt-3 flex justify-end border-t border-gray-50 pt-3">
+                <button onClick={saveConfig}
+                  className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-[11px] text-white">
+                  <Check size={9} /> Save
+                </button>
               </div>
             </div>
           )}
@@ -808,250 +860,9 @@ export default function MacroRegimePage() {
         </div>
       )}
 
-      {/* ━━ ALLOCATION OVER TIME ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {cr.length > 0 && (
-        <Card title="Allocation Over Time" className="mb-10">
-          <div className="h-56">
-            <Line
-              data={{ labels: lbl, datasets: [
-                { label: 'Equity', data: cr.map(r => r.weight_equity), borderColor: '#111', backgroundColor: 'rgba(0,0,0,0.05)', fill: true, stepped: 'before', borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3 },
-                { label: 'T-Bills', data: cr.map(r => r.weight_equity != null ? 1 : null), borderColor: 'transparent', backgroundColor: 'rgba(0,0,0,0.02)', fill: true, stepped: 'before', borderWidth: 0, pointRadius: 0, pointHoverRadius: 0 },
-              ]}}
-              options={{
-                ...cOpts01(cOpts('pct')),
-                plugins: { ...cOpts01(cOpts('pct')).plugins, legend: { display: false },
-                  tooltip: { ...cOpts01(cOpts('pct')).plugins.tooltip,
-                    callbacks: { label: ctx => ctx.datasetIndex === 1 ? null : [`Eq ${(ctx.parsed.y * 100).toFixed(1)}%`, `TB ${((1 - ctx.parsed.y) * 100).toFixed(1)}%`] },
-                    filter: item => item.datasetIndex === 0,
-                  },
-                },
-              }}
-            />
-          </div>
-        </Card>
-      )}
-
-      {/* ━━ BOTTOM: Tools + Backtest ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <div className="border-t border-gray-100 pt-8">
-
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          <span className="text-xs font-medium text-gray-400 mr-1">Tools</span>
-          {runStatus.running && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 mr-1">
-              <Loader2 size={11} className="animate-spin" /> {runStatus.command}
-            </span>
-          )}
-          {[
-            { cmd: 'predict', icon: Zap, label: 'Predict' },
-            { cmd: 'fast', icon: RefreshCw, label: 'Fast' },
-            { cmd: 'run', icon: Play, label: 'Full Run' },
-            { cmd: 'validate', icon: Shield, label: 'Validate' },
-          ].map(({ cmd, icon: I, label }) => (
-            <button key={cmd} onClick={() => handleRun(cmd)} disabled={runStatus.running}
-              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 text-[11px] text-gray-500 hover:border-gray-300 hover:text-gray-800 disabled:opacity-30">
-              <I size={11} /> {label}
-            </button>
-          ))}
-          <div className="flex-1" />
-          <button onClick={() => setShowLog(v => !v)}
-            className={`h-7 rounded-lg border px-2 text-[11px] ${showLog ? 'border-gray-300 bg-gray-50 text-gray-700' : 'border-gray-200 text-gray-400'}`}>
-            <Terminal size={11} />
-          </button>
-          <button onClick={() => setShowConfig(v => !v)}
-            className={`h-7 rounded-lg border px-2 text-[11px] ${showConfig ? 'border-gray-300 bg-gray-50 text-gray-700' : 'border-gray-200 text-gray-400'}`}>
-            <Settings size={11} />
-          </button>
-        </div>
-
-        {/* Log */}
-        {showLog && (
-          <div className="mb-5">
-            <div ref={logRef} className="max-h-40 overflow-y-auto rounded-xl bg-gray-950 px-4 py-3 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-gray-400">
-              {runLog || 'No output yet.'}
-            </div>
-            {runHistory.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-1">
-                {runHistory.map(r => (
-                  <button key={r.id} onClick={() => viewLog(r.id)}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-gray-600">
-                    <span className={`h-1 w-1 rounded-full ${r.status === 'completed' ? 'bg-emerald-400' : r.status === 'failed' ? 'bg-red-400' : 'bg-amber-400'}`} />{r.run_type}
-                  </button>
-                ))}
-              </div>
-            )}
-            {historyLog && (
-              <div className="mt-1 max-h-28 overflow-y-auto rounded-xl bg-gray-950 p-3 font-mono text-[10px] whitespace-pre-wrap text-gray-400">
-                {historyLog.log_output || 'No log.'}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Config */}
-        {showConfig && (
-          <div className="mb-5 rounded-2xl border border-gray-100 p-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-              {CFG.map(s => (
-                <div key={s.label}>
-                  <div className="mb-1.5 text-[10px] font-medium text-gray-400">{s.label}</div>
-                  <div className="space-y-1.5">{s.fields.map(fi => <CfgField key={fi.key} f={fi} value={config[fi.key]} onChange={(k, v) => setConfig(p => ({ ...p, [k]: v }))} />)}</div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex justify-end gap-2 border-t border-gray-50 pt-3">
-              <button onClick={() => setConfig(DEFAULT_CONFIG)} className="text-[11px] text-gray-400 hover:text-gray-600">Reset</button>
-              <button onClick={saveConfig} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-[11px] text-white"><Check size={9} /> Save</button>
-            </div>
-          </div>
-        )}
-
-        {/* Backtest charts */}
-        {results && (
-          <>
-            <div className="grid gap-5 lg:grid-cols-2 mb-5">
-              <Card title="Cumulative Returns">
-                <div className="h-52">
-                  <Line data={{ labels: lbl, datasets: [
-                    ds('Model', cr.map(r => r.cum_port), C.m),
-                    ds('95/5', cr.map(r => r.cum_ew), C.b, false, [4, 2]),
-                    ds('60/40', cr.map(r => r.cum_6040), C.s, false, [6, 3]),
-                    ds('Equity', cr.map(r => r.cum_equity), C.e, false, [2, 2]),
-                  ]}} options={cOpts('$')} />
-                </div>
-              </Card>
-              <Card title="Drawdowns">
-                <div className="h-52">
-                  <Line data={{ labels: lbl, datasets: [
-                    { ...ds('Model', drawdowns(cr, 'cum_port'), C.m, true) },
-                    { ...ds('Equity', drawdowns(cr, 'cum_equity'), C.e, true), backgroundColor: `${C.e}08` },
-                  ]}} options={cOpts('pct')} />
-                </div>
-              </Card>
-            </div>
-
-            {/* Key metrics */}
-            {mm && em && (
-              <div className="mb-5 grid grid-cols-4 gap-px overflow-hidden rounded-2xl border border-gray-100 bg-gray-100">
-                {[
-                  { l: 'CAGR', v: fp(mm.cagr), c: fp(em.cagr), g: mm.cagr > em.cagr },
-                  { l: 'Sharpe', v: fn(mm.sharpe), c: fn(em.sharpe), g: mm.sharpe > em.sharpe },
-                  { l: 'Max DD', v: fp(mm.max_drawdown), c: fp(em.max_drawdown), g: mm.max_drawdown > em.max_drawdown },
-                  { l: 'Sortino', v: fn(mm.sortino), c: fn(em.sortino), g: mm.sortino > em.sortino },
-                ].map(({ l, v, c, g }) => (
-                  <div key={l} className="bg-white p-4">
-                    <div className="text-[10px] text-gray-400">{l}</div>
-                    <div className="text-lg font-semibold text-gray-900 mt-0.5">{v}</div>
-                    <div className={`text-[10px] mt-0.5 ${g ? 'text-emerald-600' : 'text-red-500'}`}>vs {c}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Expandable detail */}
-            <button onClick={() => setDetailTab(detailTab ? '' : 'charts')}
-              className="flex w-full items-center gap-2 py-2 text-xs text-gray-400 hover:text-gray-600">
-              <ChevronDown size={12} className={`transition-transform ${detailTab ? 'rotate-180' : ''}`} />
-              More analysis
-            </button>
-
-            {detailTab && (
-              <div className="mt-3 mb-5">
-                <div className="flex gap-1 mb-3">
-                  {[
-                    { id: 'charts', label: 'Charts' },
-                    { id: 'metrics', label: 'Metrics' },
-                    ...(results.plots?.length ? [{ id: 'plots', label: 'Plots' }] : []),
-                    ...(results.validationReport ? [{ id: 'validation', label: 'Validation' }] : []),
-                  ].map(({ id, label }) => (
-                    <button key={id} onClick={() => setDetailTab(id)}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] ${detailTab === id ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-600'}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {detailTab === 'charts' && (
-                  <div className="grid gap-5 lg:grid-cols-2">
-                    <Card title="Model Probabilities"><div className="h-48">
-                      <Line data={{ labels: lbl, datasets: [
-                        ds('P(Eq > TB)', cr.map(r => r.prob_equity), C.m),
-                        ds('P(TB Win)', cr.map(r => r.prob_tbills), C.r, false, [4, 2]),
-                      ]}} options={cOpts01(cOpts('pct'))} />
-                    </div></Card>
-                    <Card title="Rolling 24mo Sharpe"><div className="h-48">
-                      <Line data={{ labels: lbl, datasets: [
-                        ds('Model', rollingSharpe(cr, 'port_return'), C.m),
-                        ds('Equity', rollingSharpe(cr, 'ret_equity'), C.e, false, [4, 2]),
-                      ]}} options={cOpts('num')} />
-                    </div></Card>
-                  </div>
-                )}
-
-                {detailTab === 'metrics' && metrics.length > 0 && (
-                  <div className="overflow-x-auto rounded-xl border border-gray-100">
-                    <table className="w-full text-[11px]">
-                      <thead><tr className="border-b border-gray-100">
-                        <th className="py-2 pl-3 text-left text-[10px] text-gray-400">Metric</th>
-                        {metrics.map(m => <th key={m.label} className={`px-2 py-2 text-right text-[10px] ${m.label === 'Model Portfolio' ? 'text-emerald-600' : 'text-gray-400'}`}>{m.label.replace(' Portfolio', '').replace(' Only', '')}</th>)}
-                      </tr></thead>
-                      <tbody>{METRICS_KEYS.map(({ k, l, f }) => (
-                        <tr key={k} className="border-b border-gray-50">
-                          <td className="py-1.5 pl-3 text-gray-600">{l}</td>
-                          {metrics.map((m, j) => {
-                            const v = m[k]; let d = '--';
-                            if (v != null) { if (f === 'p') d = fp(v); else if (f === 'n') d = fn(v); else d = `${Math.round(v)} mo`; }
-                            return <td key={m.label} className={`px-2 py-1.5 text-right font-mono ${j === 0 ? 'text-gray-800' : 'text-gray-400'}`}>{d}</td>;
-                          })}
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                )}
-
-                {detailTab === 'plots' && (
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    {(results.plots || []).map(p => (
-                      <div key={p}>
-                        <div className="mb-1 text-[10px] text-gray-400">{p.replace(/_/g, ' ').replace('.png', '')}</div>
-                        <Image src={`/api/macro-regime/plots?name=${p}`} alt={p} width={1600} height={900} className="w-full rounded-xl border border-gray-100" unoptimized />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {detailTab === 'validation' && results.validationReport && (
-                  <div>
-                    <MdRender content={results.validationReport} />
-                    {Object.entries(results.validationData || {}).map(([name, rows]) => {
-                      if (!rows?.length) return null;
-                      const cols = Object.keys(rows[0]);
-                      return (
-                        <div key={name} className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
-                          <div className="border-b border-gray-100 px-3 py-2 text-[10px] text-gray-400">{name.replace(/_/g, ' ')}</div>
-                          <table className="w-full text-[11px]">
-                            <thead><tr className="border-b border-gray-100">{cols.map(c => <th key={c} className="px-3 py-1.5 text-left text-[10px] text-gray-400">{c.replace(/_/g, ' ')}</th>)}</tr></thead>
-                            <tbody>{rows.map((row, i) => <tr key={i} className="border-b border-gray-50">{cols.map(c => {
-                              const v = row[c]; const isN = typeof v === 'number' && isFinite(v);
-                              return <td key={c} className={`px-3 py-1.5 ${isN ? 'font-mono text-gray-500' : 'text-gray-600'}`}>{v == null ? '--' : isN ? fn(v) : String(v)}</td>;
-                            })}</tr>)}</tbody>
-                          </table>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {!results && !sig && <p className="py-8 text-center text-sm text-gray-400">Run a full backtest to get started.</p>}
-      </div>
-
-      {/* ━━ SANDBOX / DEV MODE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━ SANDBOX OVERLAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {allocTickers.length > 0 && (
-        <div className="border-t border-gray-100 pt-8 mt-8">
+        <div className="mb-10">
           <button onClick={() => setShowSandbox(v => !v)}
             className="flex w-full items-center gap-2 py-2 text-xs text-gray-400 hover:text-gray-600">
             <ChevronDown size={12} className={`transition-transform ${showSandbox ? 'rotate-180' : ''}`} />
@@ -1059,16 +870,17 @@ export default function MacroRegimePage() {
           </button>
 
           {showSandbox && sandboxOverlay && (
-            <div className="mt-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-5">
+            <div className="mt-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50/30 p-5">
+              {/* Header with badges */}
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Derisk Sandbox</h3>
-                <div className="flex items-center gap-3">
+                <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Derisk Sandbox</h3>
+                <div className="flex items-center gap-2">
                   {sandboxOverlay.trimmed ? (
-                    <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-mono text-amber-600">
+                    <span className="rounded-full bg-amber-50 border border-amber-100 px-2 py-0.5 text-[10px] font-mono text-amber-600">
                       D = {sandboxOverlay.D.toFixed(3)}
                     </span>
                   ) : (
-                    <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] text-emerald-600">
+                    <span className="rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] text-emerald-600">
                       no derisking
                     </span>
                   )}
@@ -1081,20 +893,18 @@ export default function MacroRegimePage() {
               {/* M slider */}
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] text-gray-500">Equity Allocation (M)</label>
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="0" max="1" step="0.01" value={sandboxM}
-                      onChange={e => setSandboxM(Math.min(1, Math.max(0, Number(e.target.value) || 0)))}
-                      className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-mono text-gray-700 text-right focus:border-gray-400 focus:outline-none" />
-                  </div>
+                  <label className="text-[11px] text-gray-500">Regime Score (M)</label>
+                  <input type="number" min="0" max="1" step="0.01" value={sandboxM}
+                    onChange={e => setSandboxM(Math.min(1, Math.max(0, Number(e.target.value) || 0)))}
+                    className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-mono text-gray-700 text-right focus:border-gray-400 focus:outline-none" />
                 </div>
                 <input type="range" min="0" max="1" step="0.01" value={sandboxM}
                   onChange={e => setSandboxM(Number(e.target.value))}
                   className="w-full h-1.5 rounded-full appearance-none bg-gray-200 accent-gray-900 cursor-pointer" />
                 <div className="flex justify-between mt-1 text-[9px] text-gray-300">
-                  <span>0% — Risk Off</span>
-                  <span className="text-gray-400">derisk_start {deriskCfg.derisk_start}</span>
-                  <span>100% — Risk On</span>
+                  <span>0 — Risk Off</span>
+                  <span className="text-gray-400">start {deriskCfg.derisk_start}</span>
+                  <span>1 — Risk On</span>
                 </div>
               </div>
 
@@ -1134,7 +944,6 @@ export default function MacroRegimePage() {
                         </tr>
                       );
                     })}
-                    {/* CASH row */}
                     <tr className="border-t border-gray-200 bg-gray-50/50">
                       <td className="py-1.5 pl-3 font-medium text-gray-500">CASH</td>
                       <td className="px-2 py-1.5 text-right font-mono text-gray-400">{(Number(allocWeights.CASH) || 0).toFixed(1)}</td>
@@ -1169,6 +978,271 @@ export default function MacroRegimePage() {
           )}
         </div>
       )}
+
+      {/* ━━ TOOLS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <div className="border-t border-gray-100 pt-8">
+        <div className="flex items-center gap-2 mb-4">
+          <Wrench size={12} className="text-gray-400" />
+          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Tools</h2>
+          {runStatus.running && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 ml-2">
+              <Loader2 size={11} className="animate-spin" /> {runStatus.command}
+            </span>
+          )}
+        </div>
+
+        {/* Tool tabs */}
+        <div className="flex gap-1 mb-4 border-b border-gray-100 pb-2">
+          {[
+            { id: 'run', label: 'Run' },
+            { id: 'backtest', label: 'Backtests' },
+            { id: 'data', label: 'Data' },
+            { id: 'config', label: 'Config' },
+          ].map(({ id, label }) => (
+            <button key={id} onClick={() => setDetailTab(prev => prev === id ? '' : id)}
+              className={`rounded-lg px-3 py-1.5 text-[11px] transition-colors ${detailTab === id ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Run Tab (super functional) ── */}
+        {detailTab === 'run' && (
+          <div className="space-y-4">
+            {/* Action buttons */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { cmd: 'predict', icon: Zap, label: 'Predict', desc: 'Quick signal from latest backtest' },
+                { cmd: 'fast', icon: RefreshCw, label: 'Fast Run', desc: 'Lightweight backtest, fewer iterations' },
+                { cmd: 'run', icon: Play, label: 'Full Run', desc: 'Complete backtest with all parameters' },
+                { cmd: 'validate', icon: Shield, label: 'Validate', desc: 'Run validation checks on model' },
+              ].map(({ cmd, icon: I, label, desc }) => (
+                <button key={cmd} onClick={() => handleRun(cmd)} disabled={runStatus.running}
+                  className="flex flex-col items-start rounded-xl border border-gray-100 p-3 text-left hover:border-gray-300 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+                  <div className="flex items-center gap-2 mb-1">
+                    <I size={12} className="text-gray-500" />
+                    <span className="text-xs font-medium text-gray-800">{label}</span>
+                  </div>
+                  <span className="text-[10px] text-gray-400">{desc}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Log output */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <button onClick={() => setShowLog(v => !v)}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-600">
+                  <Terminal size={11} /> Output Log
+                  <ChevronDown size={10} className={`transition-transform ${showLog ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+              {showLog && (
+                <>
+                  <div ref={logRef} className="max-h-48 overflow-y-auto rounded-xl bg-gray-950 px-4 py-3 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-gray-400">
+                    {runLog || 'No output yet.'}
+                  </div>
+                  {runHistory.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <span className="text-[10px] text-gray-300 mr-1">History:</span>
+                      {runHistory.map(r => (
+                        <button key={r.id} onClick={() => viewLog(r.id)}
+                          className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] transition-colors ${
+                            historyLog?.id === r.id ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:text-gray-600'
+                          }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${r.status === 'completed' ? 'bg-emerald-400' : r.status === 'failed' ? 'bg-red-400' : 'bg-amber-400'}`} />
+                          {r.run_type}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {historyLog && (
+                    <div className="mt-2 max-h-32 overflow-y-auto rounded-xl bg-gray-950 p-3 font-mono text-[10px] whitespace-pre-wrap text-gray-400">
+                      {historyLog.log_output || 'No log.'}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Quick signal summary if available */}
+            {sig && (
+              <div className="rounded-xl border border-gray-100 p-4">
+                <h4 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2">Current Signal</h4>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: 'Equity', value: `${eq}%`, color: 'text-gray-900' },
+                    { label: 'T-Bills', value: `${100 - eq}%`, color: 'text-gray-500' },
+                    { label: 'P(Equity)', value: sig.probEquity != null ? `${Math.round(sig.probEquity * 100)}%` : '--', color: 'text-gray-700' },
+                    { label: 'Regime', value: regime, color: sig?.regime === 'RISK ON' ? 'text-emerald-600' : sig?.regime === 'RISK OFF' ? 'text-red-500' : 'text-amber-600' },
+                  ].map(s => (
+                    <div key={s.label}>
+                      <div className="text-[9px] text-gray-400 uppercase">{s.label}</div>
+                      <div className={`text-sm font-semibold ${s.color} mt-0.5`}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Backtests Tab ── */}
+        {detailTab === 'backtest' && results && (
+          <div className="space-y-5">
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card title="Cumulative Returns">
+                <div className="h-52">
+                  <Line data={{ labels: lbl, datasets: [
+                    ds('Model', cr.map(r => r.cum_port), C.m),
+                    ds('95/5', cr.map(r => r.cum_ew), C.b, false, [4, 2]),
+                    ds('60/40', cr.map(r => r.cum_6040), C.s, false, [6, 3]),
+                    ds('Equity', cr.map(r => r.cum_equity), C.e, false, [2, 2]),
+                  ]}} options={cOpts('$')} />
+                </div>
+              </Card>
+              <Card title="Drawdowns">
+                <div className="h-52">
+                  <Line data={{ labels: lbl, datasets: [
+                    { ...ds('Model', drawdowns(cr, 'cum_port'), C.m, true) },
+                    { ...ds('Equity', drawdowns(cr, 'cum_equity'), C.e, true), backgroundColor: `${C.e}08` },
+                  ]}} options={cOpts('pct')} />
+                </div>
+              </Card>
+            </div>
+
+            {/* Key metrics */}
+            {mm && em && (
+              <div className="grid grid-cols-4 gap-px overflow-hidden rounded-2xl border border-gray-100 bg-gray-100">
+                {[
+                  { l: 'CAGR', v: fp(mm.cagr), c: fp(em.cagr), g: mm.cagr > em.cagr },
+                  { l: 'Sharpe', v: fn(mm.sharpe), c: fn(em.sharpe), g: mm.sharpe > em.sharpe },
+                  { l: 'Max DD', v: fp(mm.max_drawdown), c: fp(em.max_drawdown), g: mm.max_drawdown > em.max_drawdown },
+                  { l: 'Sortino', v: fn(mm.sortino), c: fn(em.sortino), g: mm.sortino > em.sortino },
+                ].map(({ l, v, c, g }) => (
+                  <div key={l} className="bg-white p-4">
+                    <div className="text-[10px] text-gray-400">{l}</div>
+                    <div className="text-lg font-semibold text-gray-900 mt-0.5">{v}</div>
+                    <div className={`text-[10px] mt-0.5 ${g ? 'text-emerald-600' : 'text-red-500'}`}>vs {c}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Additional charts */}
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card title="Model Probabilities"><div className="h-48">
+                <Line data={{ labels: lbl, datasets: [
+                  ds('P(Eq > TB)', cr.map(r => r.prob_equity), C.m),
+                  ds('P(TB Win)', cr.map(r => r.prob_tbills), C.r, false, [4, 2]),
+                ]}} options={cOpts01(cOpts('pct'))} />
+              </div></Card>
+              <Card title="Rolling 24mo Sharpe"><div className="h-48">
+                <Line data={{ labels: lbl, datasets: [
+                  ds('Model', rollingSharpe(cr, 'port_return'), C.m),
+                  ds('Equity', rollingSharpe(cr, 'ret_equity'), C.e, false, [4, 2]),
+                ]}} options={cOpts('num')} />
+              </div></Card>
+            </div>
+          </div>
+        )}
+        {detailTab === 'backtest' && !results && (
+          <p className="py-8 text-center text-sm text-gray-400">No backtest results yet. Run a full backtest first.</p>
+        )}
+
+        {/* ── Data Tab ── */}
+        {detailTab === 'data' && (
+          <div className="space-y-5">
+            {/* Full metrics table */}
+            {results && metrics.length > 0 && (
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-[11px]">
+                  <thead><tr className="border-b border-gray-100">
+                    <th className="py-2 pl-3 text-left text-[10px] text-gray-400">Metric</th>
+                    {metrics.map(m => <th key={m.label} className={`px-2 py-2 text-right text-[10px] ${m.label === 'Model Portfolio' ? 'text-emerald-600' : 'text-gray-400'}`}>{m.label.replace(' Portfolio', '').replace(' Only', '')}</th>)}
+                  </tr></thead>
+                  <tbody>{METRICS_KEYS.map(({ k, l, f }) => (
+                    <tr key={k} className="border-b border-gray-50">
+                      <td className="py-1.5 pl-3 text-gray-600">{l}</td>
+                      {metrics.map((m, j) => {
+                        const v = m[k]; let d = '--';
+                        if (v != null) { if (f === 'p') d = fp(v); else if (f === 'n') d = fn(v); else d = `${Math.round(v)} mo`; }
+                        return <td key={m.label} className={`px-2 py-1.5 text-right font-mono ${j === 0 ? 'text-gray-800' : 'text-gray-400'}`}>{d}</td>;
+                      })}
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Plots */}
+            {results?.plots?.length > 0 && (
+              <div>
+                <h3 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">Generated Plots</h3>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {results.plots.map(p => (
+                    <div key={p}>
+                      <div className="mb-1 text-[10px] text-gray-400">{p.replace(/_/g, ' ').replace('.png', '')}</div>
+                      <Image src={`/api/macro-regime/plots?name=${p}`} alt={p} width={1600} height={900} className="w-full rounded-xl border border-gray-100" unoptimized />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Validation */}
+            {results?.validationReport && (
+              <div>
+                <h3 className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">Validation Report</h3>
+                <div className="rounded-xl border border-gray-100 p-4">
+                  <MdRender content={results.validationReport} />
+                </div>
+                {Object.entries(results.validationData || {}).map(([name, rows]) => {
+                  if (!rows?.length) return null;
+                  const cols = Object.keys(rows[0]);
+                  return (
+                    <div key={name} className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
+                      <div className="border-b border-gray-100 px-3 py-2 text-[10px] text-gray-400">{name.replace(/_/g, ' ')}</div>
+                      <table className="w-full text-[11px]">
+                        <thead><tr className="border-b border-gray-100">{cols.map(c => <th key={c} className="px-3 py-1.5 text-left text-[10px] text-gray-400">{c.replace(/_/g, ' ')}</th>)}</tr></thead>
+                        <tbody>{rows.map((row, i) => <tr key={i} className="border-b border-gray-50">{cols.map(c => {
+                          const v = row[c]; const isN = typeof v === 'number' && isFinite(v);
+                          return <td key={c} className={`px-3 py-1.5 ${isN ? 'font-mono text-gray-500' : 'text-gray-600'}`}>{v == null ? '--' : isN ? fn(v) : String(v)}</td>;
+                        })}</tr>)}</tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!results && <p className="py-8 text-center text-sm text-gray-400">No data yet. Run a backtest to generate results.</p>}
+          </div>
+        )}
+
+        {/* ── Config Tab ── */}
+        {detailTab === 'config' && (
+          <div className="rounded-2xl border border-gray-100 p-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              {CFG.map(s => (
+                <div key={s.label}>
+                  <div className="mb-1.5 text-[10px] font-medium text-gray-400">{s.label}</div>
+                  <div className="space-y-1.5">{s.fields.map(fi => <CfgField key={fi.key} f={fi} value={config[fi.key]} onChange={(k, v) => setConfig(p => ({ ...p, [k]: v }))} />)}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-end gap-2 border-t border-gray-50 pt-3">
+              <button onClick={() => setConfig(DEFAULT_CONFIG)} className="text-[11px] text-gray-400 hover:text-gray-600">Reset</button>
+              <button onClick={saveConfig} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-[11px] text-white"><Check size={9} /> Save</button>
+            </div>
+          </div>
+        )}
+
+        {/* No tab selected prompt */}
+        {!detailTab && !results && !sig && (
+          <p className="py-8 text-center text-sm text-gray-400">Run a full backtest to get started.</p>
+        )}
+      </div>
 
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
     </div>
