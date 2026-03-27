@@ -791,7 +791,7 @@ export default function MacroRegimePage() {
                 />
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="text-3xl font-bold tabular-nums text-gray-900 leading-none">{eq}%</span>
-                  <span className={`mt-1 inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${regimeBg}`}>{regime}</span>
+                  <span className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${regimeBg}`}>{regime}</span>
                 </div>
               </div>
 
