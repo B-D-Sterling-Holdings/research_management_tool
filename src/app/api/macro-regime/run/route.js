@@ -13,20 +13,25 @@ const LOG_FILE = '/tmp/macro-regime-run-output.log';
 const VALID_COMMANDS = ['run', 'predict', 'fast', 'validate', 'clean'];
 
 function loadEnvFile() {
-  const candidates = [
-    path.resolve(process.cwd(), '.env.local'),
-    path.join(MACRO_DIR, '.env.local'),
-  ];
-  const env = {};
-  for (const envPath of candidates) {
-    if (!fs.existsSync(envPath)) continue;
-    const content = fs.readFileSync(envPath, 'utf8');
-    content.split('\n').forEach((line) => {
-      const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/i);
-      if (match) env[match[1]] = match[2].replace(/^["']|["']$/g, '');
-    });
+  try {
+    const candidates = [
+      path.resolve(process.cwd(), '.env.local'),
+      path.join(MACRO_DIR, '.env.local'),
+    ];
+    const env = {};
+    for (const envPath of candidates) {
+      if (!fs.existsSync(envPath)) continue;
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split('\n').forEach((line) => {
+        const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/i);
+        if (match) env[match[1]] = match[2].replace(/^["']|["']$/g, '');
+      });
+    }
+    return env;
+  } catch {
+    // In production (read-only filesystem), env vars come from process.env
+    return {};
   }
-  return env;
 }
 
 function parseCSV(text) {
