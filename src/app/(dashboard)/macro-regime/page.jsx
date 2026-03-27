@@ -745,7 +745,7 @@ export default function MacroRegimePage() {
 
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Macro Regime</h1>
+        <h1 className="text-3xl font-bold text-gray-900">Market Confidence</h1>
       </div>
 
       {/* ━━ TOP ROW: Signal + Chart (left) | Portfolio Allocation (right) ━━ */}

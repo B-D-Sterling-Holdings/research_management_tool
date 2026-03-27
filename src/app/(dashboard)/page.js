@@ -52,6 +52,9 @@ export default function DashboardPage() {
   const tasksPanelRef = useRef(null);
   const [otherTasksLimit, setOtherTasksLimit] = useState(3);
 
+  // Macro regime signal
+  const [macroSignal, setMacroSignal] = useState(null);
+
   // NAV Update modal state
   const [showNavUpdate, setShowNavUpdate] = useState(false);
   const [navUpdateInput, setNavUpdateInput] = useState('');
@@ -149,6 +152,12 @@ export default function DashboardPage() {
       .then(({ config }) => {
         if (config?.riskFreeRate !== undefined) setRiskFreeRate(Number(config.riskFreeRate));
       })
+      .catch(() => {});
+
+    // Fetch macro regime signal
+    fetch('/api/macro-regime/predict')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && !d.error) setMacroSignal(d); })
       .catch(() => {});
 
     // Fetch first board's tasks
@@ -969,6 +978,108 @@ export default function DashboardPage() {
         </div>
         </div>
       </div>
+
+      {/* ── Macro Regime Signal ── */}
+      {macroSignal && (() => {
+        const eqPct = Math.round((macroSignal.equityWeight || 0) * 100);
+        const regime = macroSignal.regime || 'CAUTIOUS';
+        const regimeColor = macroSignal.regimeColor || 'amber';
+        const colorMap = {
+          emerald: { ring: '#10b981', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
+          amber: { ring: '#f59e0b', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
+          red: { ring: '#ef4444', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
+        };
+        const c = colorMap[regimeColor] || colorMap.amber;
+
+        const ms = macroSignal.marketSignals || {};
+
+        // All 12 model features with descriptions
+        const allFeatures = [
+          { key: 'inflation_yoy', label: 'Inflation YoY', desc: 'CPI annual change', unit: '%' },
+          { key: 'inflation_impulse', label: 'Inflation Impulse', desc: '3M annualized vs YoY gap', unit: '%' },
+          { key: 'unemployment_rate', label: 'Unemployment', desc: 'U.S. unemployment rate', unit: '%' },
+          { key: 'credit_spread_level', label: 'Credit Spread', desc: 'High-yield bond spread', unit: '%' },
+          { key: 'credit_spread_3m_change', label: 'Credit Spd 3M', desc: '3-month spread change', unit: '%', signed: true },
+          { key: 'real_fed_funds', label: 'Real Fed Funds', desc: 'Fed funds minus inflation', unit: '%', signed: true },
+          { key: 'yield_curve_slope', label: 'Yield Curve', desc: '10Y minus 2Y Treasury', unit: '%', signed: true },
+          { key: 'vix_1m_change', label: 'VIX 1M Change', desc: 'Monthly volatility shift', unit: 'pts', signed: true },
+          { key: 'vix_term_structure', label: 'VIX Term Struct', desc: 'VIX / VIX3M ratio', unit: 'x' },
+          { key: 'equity_momentum_3m', label: 'Equity Momentum', desc: '3-month price return', unit: '%', signed: true },
+          { key: 'equity_vol_3m', label: 'Equity Volatility', desc: '3-month annualized vol', unit: '%' },
+          { key: 'equity_drawdown_from_high', label: 'Drawdown', desc: 'Drop from peak close in past 12M', unit: '%' },
+        ];
+        const fmtFeature = (f, v) => {
+          if (v == null) return '—';
+          const num = f.unit === 'x' ? v.toFixed(3) : v.toFixed(2);
+          const sign = f.signed && v > 0 ? '+' : '';
+          const suffix = f.unit === 'x' ? '' : f.unit === 'pts' ? '' : '%';
+          return sign + num + suffix;
+        };
+
+        const doughnutData = {
+          datasets: [{
+            data: [eqPct, 100 - eqPct],
+            backgroundColor: [c.ring, '#e5e7eb'],
+            borderWidth: 0,
+            cutout: '75%',
+          }],
+        };
+        const doughnutOpts = {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        };
+
+        return (
+          <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Market Confidence</h3>
+              <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                {macroSignal.dataAsOf && <span>Data thru {macroSignal.dataAsOf}</span>}
+                {macroSignal.allocationFor && <span className="text-gray-300">|</span>}
+                {macroSignal.allocationFor && <span>Signal for {macroSignal.allocationFor}</span>}
+                {macroSignal.overlay && macroSignal.overlay !== 'none' && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-red-50 rounded-md text-red-600 font-medium">
+                    <AlertTriangle size={10} /> {macroSignal.overlay}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-start gap-8">
+              {/* Doughnut */}
+              <div className="flex-shrink-0 w-36 relative">
+                <Doughnut data={doughnutData} options={doughnutOpts} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
+                  <span className="text-xl font-extrabold text-gray-900">{eqPct}%</span>
+                  <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${c.badge}`}>
+                    {regime}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 12-feature grid */}
+            <div className="mt-5 grid grid-cols-4 gap-3">
+              {allFeatures.map(f => {
+                const v = ms[f.key];
+                const hasValue = v != null && Number.isFinite(v);
+                return (
+                  <div key={f.key} className="px-3 py-2.5 bg-gray-50 rounded-xl">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[11px] font-semibold text-gray-700">{f.label}</span>
+                      <span className={`text-[12px] font-bold font-mono ${hasValue ? 'text-gray-900' : 'text-gray-300'}`}>
+                        {fmtFeature(f, v)}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-gray-400">{f.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Fund Analytics ── */}
       {navData && navData.length > 1 && (() => {

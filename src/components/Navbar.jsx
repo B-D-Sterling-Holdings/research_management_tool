@@ -17,7 +17,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/holdings', label: 'Holdings', icon: Briefcase },
       { href: '/allocation', label: 'Allocation', icon: PieChart },
-      { href: '/macro-regime', label: 'Macro Regime', icon: Activity },
+      { href: '/macro-regime', label: 'Market Confidence', icon: Activity },
       { href: '/relationships', label: 'Relationships', icon: Users },
     ],
     // Active if any child route is active

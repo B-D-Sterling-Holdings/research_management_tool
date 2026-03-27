@@ -95,7 +95,7 @@ def _class_balanced_weights(y: np.ndarray) -> np.ndarray:
 # ── Market Data for Crash Overlay ───────────────────────────────────────────
 
 def _gather_market_data(merged: pd.DataFrame, rebalance_date) -> dict:
-    """Collect current (unlagged) market signals for the crash overlay."""
+    """Collect current (unlagged) market signals — all 12 model features + overlay signals."""
     if rebalance_date not in merged.index:
         return {}
 
@@ -103,35 +103,95 @@ def _gather_market_data(merged: pd.DataFrame, rebalance_date) -> dict:
     row = merged.loc[rebalance_date]
     rd_loc = merged.index.get_loc(rebalance_date)
 
-    # VIX 1-month change
-    if "vix" in merged.columns and rd_loc > 0:
-        md["vix_1m_change"] = merged["vix"].iloc[rd_loc] - merged["vix"].iloc[rd_loc - 1]
+    # ── All 12 model features (mirrors data.py engineer_features) ──
 
-    # VIX term structure
+    # 1. Inflation YoY
+    cpi_col = "cpi" if "cpi" in merged.columns else "core_cpi"
+    if cpi_col in merged.columns and rd_loc >= 12:
+        cpi_now = merged[cpi_col].iloc[rd_loc]
+        cpi_12 = merged[cpi_col].iloc[rd_loc - 12]
+        if pd.notna(cpi_now) and pd.notna(cpi_12) and cpi_12 > 0:
+            md["inflation_yoy"] = (cpi_now / cpi_12 - 1) * 100
+
+    # 2. Inflation Impulse
+    if cpi_col in merged.columns and rd_loc >= 12:
+        cpi_now = merged[cpi_col].iloc[rd_loc]
+        cpi_3 = merged[cpi_col].iloc[max(0, rd_loc - 3)]
+        if pd.notna(cpi_now) and pd.notna(cpi_3) and cpi_3 > 0:
+            impulse = ((cpi_now / cpi_3) ** 4 - 1) * 100 - md.get("inflation_yoy", 0)
+            md["inflation_impulse"] = impulse
+
+    # 3. Unemployment Rate
+    if "unemployment" in merged.columns:
+        v = row.get("unemployment")
+        if pd.notna(v):
+            md["unemployment_rate"] = float(v)
+
+    # 4. Credit Spread Level
+    if "credit_spread" in merged.columns:
+        v = row.get("credit_spread")
+        if pd.notna(v):
+            md["credit_spread_level"] = float(v)
+
+    # 5. Credit Spread 3M Change
+    if "credit_spread" in merged.columns and rd_loc >= 3:
+        md["credit_spread_3m_change"] = float(
+            merged["credit_spread"].iloc[rd_loc] - merged["credit_spread"].iloc[rd_loc - 3]
+        )
+
+    # 6. Real Fed Funds
+    if "fed_funds" in merged.columns and cpi_col in merged.columns and rd_loc >= 12:
+        ff = row.get("fed_funds")
+        cpi_now = merged[cpi_col].iloc[rd_loc]
+        cpi_12 = merged[cpi_col].iloc[rd_loc - 12]
+        if pd.notna(ff) and pd.notna(cpi_now) and pd.notna(cpi_12) and cpi_12 > 0:
+            md["real_fed_funds"] = float(ff) - (cpi_now / cpi_12 - 1) * 100
+
+    # 7. Yield Curve Slope
+    if "treasury_10y" in merged.columns and "treasury_2y" in merged.columns:
+        t10 = row.get("treasury_10y")
+        t2 = row.get("treasury_2y")
+        if pd.notna(t10) and pd.notna(t2):
+            md["yield_curve_slope"] = float(t10) - float(t2)
+
+    # 8. VIX 1-Month Change
+    if "vix" in merged.columns and rd_loc > 0:
+        md["vix_1m_change"] = float(
+            merged["vix"].iloc[rd_loc] - merged["vix"].iloc[rd_loc - 1]
+        )
+
+    # 9. VIX Term Structure
     if "vix" in merged.columns and "vix3m" in merged.columns:
         v, v3 = row.get("vix"), row.get("vix3m")
         if pd.notna(v) and pd.notna(v3) and v3 > 0:
-            md["vix_term_structure"] = v / v3
+            md["vix_term_structure"] = float(v) / float(v3)
 
-    # Equity drawdown from 12-month high + 1m change
+    # 10. Equity Momentum 3M
+    if "equity" in merged.columns and rd_loc >= 3:
+        eq_now = merged["equity"].iloc[rd_loc]
+        eq_3 = merged["equity"].iloc[rd_loc - 3]
+        if pd.notna(eq_now) and pd.notna(eq_3) and eq_3 > 0:
+            md["equity_momentum_3m"] = (eq_now / eq_3 - 1) * 100
+
+    # 11. Equity Volatility 3M
+    if "equity" in merged.columns and rd_loc >= 3:
+        rets = merged["equity"].pct_change().iloc[max(0, rd_loc - 2):rd_loc + 1]
+        if len(rets.dropna()) >= 2:
+            md["equity_vol_3m"] = float(rets.std() * np.sqrt(12) * 100)
+
+    # 12. Equity Drawdown from High
     if "equity" in merged.columns:
         lookback = max(0, rd_loc - 11)
         rolling_high = merged["equity"].iloc[lookback:rd_loc + 1].max()
         if rolling_high > 0:
             dd_now = (row["equity"] / rolling_high - 1) * 100
-            md["equity_drawdown_from_high"] = dd_now
+            md["equity_drawdown_from_high"] = float(dd_now)
             if rd_loc > 0:
                 prev_lookback = max(0, rd_loc - 12)
                 prev_high = merged["equity"].iloc[prev_lookback:rd_loc].max()
                 if prev_high > 0:
                     dd_prev = (merged["equity"].iloc[rd_loc - 1] / prev_high - 1) * 100
-                    md["drawdown_1m_change"] = dd_now - dd_prev
-
-    # Credit spread 3-month change
-    if "credit_spread" in merged.columns and rd_loc >= 3:
-        md["credit_spread_3m_change"] = (
-            merged["credit_spread"].iloc[rd_loc] - merged["credit_spread"].iloc[rd_loc - 3]
-        )
+                    md["drawdown_1m_change"] = float(dd_now - dd_prev)
 
     return md
 
