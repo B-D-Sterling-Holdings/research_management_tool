@@ -635,7 +635,6 @@ export default function MacroRegimePage() {
       {/* Page header */}
       <div className="mb-8">
         <h1 className="text-lg font-semibold text-gray-900 tracking-tight">Macro Regime</h1>
-        <p className="text-[12px] text-gray-400 mt-0.5">Equity/bond allocation signal and portfolio overlay</p>
       </div>
 
       {/* ━━ TOP ROW: Signal + Chart (left) | Portfolio Allocation (right) ━━ */}
@@ -739,7 +738,7 @@ export default function MacroRegimePage() {
 
         {/* ── RIGHT COLUMN: Portfolio Allocation ── */}
         {allocTickers.length > 0 && (
-          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 p-5">
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 p-5 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Portfolio Allocation</h2>
               <button onClick={syncWeightsFromPortfolio} disabled={syncingWeights}
@@ -760,32 +759,32 @@ export default function MacroRegimePage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 flex-1 auto-rows-fr">
               {allocTickers.map(ticker => {
                 const risk = stockRisks[ticker];
                 const w = Number(allocWeights[ticker]) || 0;
                 const maxW = Number(allocConfig?.maxWeight) || 100;
                 const barPct = Math.min((w / maxW) * 100, 100);
                 return (
-                  <div key={ticker} className="group rounded-xl bg-gray-50/60 ring-1 ring-gray-100 px-3 py-2.5 hover:ring-gray-200 transition-all">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-semibold text-gray-900">{ticker}</span>
+                  <div key={ticker} className="group flex flex-col rounded-xl bg-gray-50/60 ring-1 ring-gray-100 px-3 py-2.5 hover:ring-gray-200 transition-all">
+                    <div className="flex items-center justify-between mb-auto">
+                      <span className="text-sm font-semibold text-gray-900">{ticker}</span>
                       {risk != null && (
-                        <span className="text-[9px] font-mono text-gray-400 opacity-60 group-hover:opacity-100 transition-opacity" title="Composite risk">
+                        <span className="text-[11px] font-mono text-gray-400 opacity-60 group-hover:opacity-100 transition-opacity" title="Composite risk">
                           {(risk * 100).toFixed(0)}
                         </span>
                       )}
                     </div>
                     {/* Mini weight bar — max is Stock Max Weight */}
-                    <div className="h-1 rounded-full bg-emerald-100 mb-2 overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-emerald-100 my-2 overflow-hidden">
                       <div className={`h-full rounded-full transition-all duration-300 ${barPct >= 100 ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${barPct}%` }} />
                     </div>
-                    <div className="relative">
+                    <div className="relative mt-auto">
                       <input
                         type="number" min="0" max="100" step="0.5"
                         value={allocWeights[ticker] ?? ''}
                         onChange={e => handleAllocChange(ticker, e.target.value)}
-                        className="w-full rounded-lg bg-white ring-1 ring-gray-200 px-2.5 py-1.5 pr-6 text-[12px] font-mono text-gray-800 tabular-nums focus:ring-gray-400 focus:outline-none transition-shadow"
+                        className="w-full rounded-lg bg-white ring-1 ring-gray-200 px-2.5 py-2.5 pr-6 text-[12px] font-mono text-gray-800 tabular-nums focus:ring-gray-400 focus:outline-none transition-shadow"
                       />
                       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">%</span>
                     </div>
