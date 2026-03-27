@@ -6,7 +6,7 @@ import { Chart, registerables } from 'chart.js';
 import { Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
 import {
-  Circle, ArrowUpRight, ArrowDownRight,
+  Circle, ArrowUpRight, ArrowDownRight, RefreshCw, X, AlertTriangle, CheckCircle,
 } from 'lucide-react';
 
 ChartJS.register(ArcElement, ChartTooltip, Legend);
@@ -51,6 +51,74 @@ export default function DashboardPage() {
   const highSectionRef = useRef(null);
   const tasksPanelRef = useRef(null);
   const [otherTasksLimit, setOtherTasksLimit] = useState(3);
+
+  // NAV Update modal state
+  const [showNavUpdate, setShowNavUpdate] = useState(false);
+  const [navUpdateInput, setNavUpdateInput] = useState('');
+  const [navUpdateLoading, setNavUpdateLoading] = useState(false);
+  const [navUpdateResult, setNavUpdateResult] = useState(null);
+  const [navUpdateError, setNavUpdateError] = useState('');
+
+  const handleNavUpdate = async () => {
+    setNavUpdateError('');
+    setNavUpdateResult(null);
+    setNavUpdateLoading(true);
+
+    try {
+      // Parse the input
+      const lines = navUpdateInput.trim().split('\n').filter(l => l.trim());
+      const entries = [];
+
+      for (const line of lines) {
+        const cleaned = line.replace(/"/g, '').trim();
+        const parts = cleaned.split(/[,\t]+/).map(s => s.trim()).filter(Boolean);
+        if (parts.length < 2) {
+          setNavUpdateError(`Could not parse line: "${line.trim()}"`);
+          setNavUpdateLoading(false);
+          return;
+        }
+        const date = parts[0];
+        const aum = parseFloat(parts[1]);
+        if (isNaN(aum)) {
+          setNavUpdateError(`Invalid AUM value on line: "${line.trim()}"`);
+          setNavUpdateLoading(false);
+          return;
+        }
+        entries.push({ date, aum });
+      }
+
+      if (entries.length === 0) {
+        setNavUpdateError('No entries to process.');
+        setNavUpdateLoading(false);
+        return;
+      }
+
+      const res = await fetch('/api/fund-nav', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setNavUpdateError(data.error || 'Failed to update');
+        setNavUpdateLoading(false);
+        return;
+      }
+
+      setNavUpdateResult(data);
+
+      // Refresh chart data
+      const refreshRes = await fetch('/api/fund-nav');
+      const refreshData = await refreshRes.json();
+      if (Array.isArray(refreshData)) setNavData(refreshData);
+
+    } catch (err) {
+      setNavUpdateError(err.message || 'Something went wrong');
+    } finally {
+      setNavUpdateLoading(false);
+    }
+  };
 
   useEffect(() => {
     // Fetch all dashboard data in parallel
@@ -437,13 +505,22 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
-            {TIMEFRAMES.map(tf => (
-              <button key={tf.label} onClick={() => setTimeframe(tf.label)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${timeframe === tf.label ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-600'}`}>
-                {tf.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setShowNavUpdate(true); setNavUpdateResult(null); setNavUpdateError(''); }}
+              className="p-2 rounded-xl text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
+              title="Update NAV data"
+            >
+              <RefreshCw size={15} />
+            </button>
+            <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
+              {TIMEFRAMES.map(tf => (
+                <button key={tf.label} onClick={() => setTimeframe(tf.label)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${timeframe === tf.label ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-600'}`}>
+                  {tf.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="mt-4 relative select-none" style={{ height: 320, cursor: 'crosshair' }}
@@ -501,6 +578,65 @@ export default function DashboardPage() {
             <div className="h-full flex items-center justify-center text-gray-500 text-sm">No data available</div>
           )}
         </div>
+
+        {/* NAV Update Modal */}
+        {showNavUpdate && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={e => { if (e.target === e.currentTarget) setShowNavUpdate(false); }}>
+            <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-lg mx-4 overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <RefreshCw size={16} className="text-emerald-600" />
+                  <h3 className="text-sm font-bold text-gray-900">Update NAV Data</h3>
+                </div>
+                <button onClick={() => setShowNavUpdate(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                <p className="text-xs text-gray-500">
+                  Paste dates and portfolio AUM values. NAV per share and S&P 500 benchmark will be calculated automatically.
+                </p>
+                <textarea
+                  value={navUpdateInput}
+                  onChange={e => setNavUpdateInput(e.target.value)}
+                  placeholder={'"03/23/2026","46554.253681603"\n"03/24/2026","45817.583681603"\n"03/25/2026","46113.083681603"'}
+                  rows={6}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono text-gray-800 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 transition-all resize-y"
+                />
+
+                {navUpdateError && (
+                  <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-1.5">
+                    <AlertTriangle size={12} /> {navUpdateError}
+                  </div>
+                )}
+
+                {navUpdateResult && (
+                  <div className="px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700 flex items-center gap-1.5">
+                    <CheckCircle size={12} /> Updated {navUpdateResult.inserted} date{navUpdateResult.inserted !== 1 ? 's' : ''} successfully. Chart refreshed.
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleNavUpdate}
+                    disabled={navUpdateLoading || !navUpdateInput.trim()}
+                    className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 rounded-xl shadow-sm hover:shadow-md hover:from-emerald-700 hover:to-emerald-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    {navUpdateLoading && <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    {navUpdateLoading ? 'Processing...' : 'Update'}
+                  </button>
+                  <button
+                    onClick={() => setShowNavUpdate(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Period Returns ── */}
