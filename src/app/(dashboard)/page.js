@@ -1046,36 +1046,38 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="flex items-start gap-8">
-              {/* Doughnut */}
-              <div className="flex-shrink-0 w-36 relative">
-                <Doughnut data={doughnutData} options={doughnutOpts} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
-                  <span className="text-xl font-extrabold text-gray-900">{eqPct}%</span>
-                  <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${c.badge}`}>
-                    {regime}
-                  </span>
+            <div className="flex items-start gap-6">
+              {/* Doughnut — pinned left */}
+              <div className="flex-shrink-0 w-40 relative self-stretch flex items-center">
+                <div className="w-full relative">
+                  <Doughnut data={doughnutData} options={doughnutOpts} />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
+                    <span className="text-xl font-extrabold text-gray-900">{eqPct}%</span>
+                    <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${c.badge}`}>
+                      {regime}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* 12-feature grid */}
-            <div className="mt-5 grid grid-cols-4 gap-3">
-              {allFeatures.map(f => {
-                const v = ms[f.key];
-                const hasValue = v != null && Number.isFinite(v);
-                return (
-                  <div key={f.key} className="px-3 py-2.5 bg-gray-50 rounded-xl">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-semibold text-gray-700">{f.label}</span>
-                      <span className={`text-[12px] font-bold font-mono ${hasValue ? 'text-gray-900' : 'text-gray-300'}`}>
-                        {fmtFeature(f, v)}
-                      </span>
+              {/* 12-feature grid — fills right */}
+              <div className="flex-1 min-w-0 grid grid-cols-4 gap-2.5">
+                {allFeatures.map(f => {
+                  const v = ms[f.key];
+                  const hasValue = v != null && Number.isFinite(v);
+                  return (
+                    <div key={f.key} className="px-3 py-2 bg-gray-50 rounded-xl">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[11px] font-semibold text-gray-700">{f.label}</span>
+                        <span className={`text-[12px] font-bold font-mono ${hasValue ? 'text-gray-900' : 'text-gray-300'}`}>
+                          {fmtFeature(f, v)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-gray-400">{f.desc}</div>
                     </div>
-                    <div className="text-[10px] text-gray-400">{f.desc}</div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         );
