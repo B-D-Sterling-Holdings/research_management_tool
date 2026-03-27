@@ -752,11 +752,11 @@ export default function MacroRegimePage() {
             {/* Total bar */}
             <div className="mb-4 flex items-center gap-3">
               <div className="h-2 flex-1 rounded-full bg-gray-100 overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-500 ${allocTotal > 100 ? 'bg-red-400' : allocTotal === 100 ? 'bg-emerald-500' : 'bg-amber-400'}`}
+                <div className={`h-full rounded-full transition-all duration-500 ${allocTotal > 100.005 ? 'bg-red-400' : allocTotal >= 99.995 ? 'bg-emerald-500' : 'bg-amber-400'}`}
                   style={{ width: `${Math.min(allocTotal, 100)}%` }} />
               </div>
-              <span className={`text-xs font-semibold font-mono tabular-nums ${allocTotal > 100 ? 'text-red-500' : allocTotal === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                {allocTotal.toFixed(1)}%
+              <span className={`text-xs font-semibold font-mono tabular-nums ${allocTotal > 100.005 ? 'text-red-500' : allocTotal >= 99.995 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {allocTotal.toFixed(2)}%
               </span>
             </div>
 
@@ -764,6 +764,8 @@ export default function MacroRegimePage() {
               {allocTickers.map(ticker => {
                 const risk = stockRisks[ticker];
                 const w = Number(allocWeights[ticker]) || 0;
+                const maxW = Number(allocConfig?.maxWeight) || 100;
+                const barPct = Math.min((w / maxW) * 100, 100);
                 return (
                   <div key={ticker} className="group rounded-xl bg-gray-50/60 ring-1 ring-gray-100 px-3 py-2.5 hover:ring-gray-200 transition-all">
                     <div className="flex items-center justify-between mb-2">
@@ -774,9 +776,9 @@ export default function MacroRegimePage() {
                         </span>
                       )}
                     </div>
-                    {/* Mini weight bar */}
-                    <div className="h-1 rounded-full bg-gray-200/60 mb-2 overflow-hidden">
-                      <div className="h-full rounded-full bg-gray-400 transition-all duration-300" style={{ width: `${Math.min(w, 100)}%` }} />
+                    {/* Mini weight bar — max is Stock Max Weight */}
+                    <div className="h-1 rounded-full bg-emerald-100 mb-2 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-300 ${barPct >= 100 ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${barPct}%` }} />
                     </div>
                     <div className="relative">
                       <input
@@ -868,7 +870,7 @@ export default function MacroRegimePage() {
                     )}
                   </div>
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-sm font-bold tabular-nums text-gray-900">{adjW.toFixed(1)}%</span>
+                    <span className="text-sm font-bold tabular-nums text-gray-900">{adjW.toFixed(2)}%</span>
                     {Math.abs(delta) >= 0.01 && (
                       <span className={`text-[10px] font-mono font-semibold tabular-nums ${delta < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
                         {delta > 0 ? '+' : ''}{delta.toFixed(2)}
