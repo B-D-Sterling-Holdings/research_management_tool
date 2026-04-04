@@ -299,7 +299,7 @@ def run_backtest(features: pd.DataFrame, labels: pd.DataFrame, cfg: Config) -> d
 
         if valid_months == 0:
             # No realized returns yet (e.g. last month) — still record the prediction
-            results.append({
+            row = {
                 "rebalance_date": rebalance_date,
                 "return_date": rebalance_date,
                 "pred_class": pred_class,
@@ -315,7 +315,9 @@ def run_backtest(features: pd.DataFrame, labels: pd.DataFrame, cfg: Config) -> d
                 "ew_return": np.nan,
                 "ret_6040": np.nan,
                 "train_size": train_end,
-            })
+            }
+            row.update({f"md_{k}": v for k, v in market_data.items()})
+            results.append(row)
             continue
 
         ret_eq = cum_eq - 1
@@ -323,7 +325,7 @@ def run_backtest(features: pd.DataFrame, labels: pd.DataFrame, cfg: Config) -> d
         realized = np.array([ret_eq, ret_tbills])
         actual_label = y_all.loc[rebalance_date] if rebalance_date in y_all.index else np.nan
 
-        results.append({
+        row = {
             "rebalance_date": rebalance_date,
             "return_date": next_dates[valid_months - 1],
             "pred_class": pred_class,
@@ -339,7 +341,9 @@ def run_backtest(features: pd.DataFrame, labels: pd.DataFrame, cfg: Config) -> d
             "ew_return": np.dot(ew, realized),
             "ret_6040": 0.60 * ret_eq + 0.40 * ret_tbills,
             "train_size": train_end,
-        })
+        }
+        row.update({f"md_{k}": v for k, v in market_data.items()})
+        results.append(row)
 
     print(f"  Predictions made: {len(results)}")
     if not results:

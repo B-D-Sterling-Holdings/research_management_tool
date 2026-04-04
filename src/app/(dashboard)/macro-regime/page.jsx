@@ -1147,6 +1147,7 @@ export default function MacroRegimePage() {
             { id: 'run', label: 'Run' },
             { id: 'backtest', label: 'Backtests' },
             { id: 'data', label: 'Data' },
+            { id: 'charts', label: 'Charts' },
             { id: 'config', label: 'Config' },
           ].map(({ id, label }) => (
             <button key={id} onClick={() => setDetailTab(id)}
@@ -1376,6 +1377,46 @@ export default function MacroRegimePage() {
 
             {!results && <p className="py-10 text-center text-sm text-gray-400">No data yet. Run a backtest to generate results.</p>}
           </div>
+        )}
+
+        {/* ── Charts Tab ── */}
+        {detailTab === 'charts' && results && (() => {
+          const MACRO_CHARTS = [
+            { key: 'md_inflation_yoy', label: 'Inflation YoY (%)', color: '#ef4444' },
+            { key: 'md_inflation_impulse', label: 'Inflation Impulse (%)', color: '#f97316' },
+            { key: 'md_unemployment_rate', label: 'Unemployment Rate (%)', color: '#8b5cf6' },
+            { key: 'md_credit_spread_level', label: 'Credit Spread OAS (%)', color: '#ec4899' },
+            { key: 'md_credit_spread_3m_change', label: 'Credit Spread 3M Chg (%)', color: '#f43f5e' },
+            { key: 'md_real_fed_funds', label: 'Real Fed Funds (%)', color: '#14b8a6' },
+            { key: 'md_yield_curve_slope', label: 'Yield Curve 10Y-2Y (%)', color: '#3b82f6' },
+            { key: 'md_vix_1m_change', label: 'VIX 1M Change', color: '#f59e0b' },
+            { key: 'md_vix_term_structure', label: 'VIX Term Structure', color: '#d97706' },
+            { key: 'md_equity_momentum_3m', label: 'Equity Momentum 3M (%)', color: '#10b981' },
+            { key: 'md_equity_vol_3m', label: 'Equity Volatility 3M (%)', color: '#6366f1' },
+            { key: 'md_equity_drawdown_from_high', label: 'Equity Drawdown from High (%)', color: '#dc2626' },
+          ];
+          const hasAny = cr.some(r => MACRO_CHARTS.some(c => r[c.key] != null));
+          if (!hasAny) return (
+            <p className="py-10 text-center text-sm text-gray-400">No macro indicator data found. Run a new backtest to generate charts.</p>
+          );
+          const available = MACRO_CHARTS.filter(c => cr.some(r => r[c.key] != null));
+          return (
+            <div className="space-y-5">
+              <div className="grid gap-5 lg:grid-cols-2">
+                {available.map(({ key, label, color }) => (
+                  <div key={key} className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 p-5">
+                    <h3 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
+                    <div className="h-48">
+                      <Line data={{ labels: lbl, datasets: [ds(label, cr.map(r => r[key] ?? null), color)] }} options={cOpts('num')} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+        {detailTab === 'charts' && !results && (
+          <p className="py-10 text-center text-sm text-gray-400">No backtest results yet. Run a full backtest first.</p>
         )}
 
         {/* ── Config Tab ── */}
