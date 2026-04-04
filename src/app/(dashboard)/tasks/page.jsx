@@ -1105,7 +1105,11 @@ export default function TaskBoardPage() {
     let newTasks = prev;
     let itemsToSave = [];
 
-    if (overIsSection) {
+    // Check if a cross-container move happened during onDragOver
+    const origTask = snapshot.find(s => s.id === active.id);
+    const crossContainerMove = origTask && origTask.priority !== activePriority;
+
+    if (overIsSection || crossContainerMove) {
       // Cross-container was handled in onDragOver — persist current state
       newTasks = prev;
       itemsToSave = prev
