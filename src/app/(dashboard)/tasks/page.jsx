@@ -748,7 +748,7 @@ export default function TaskBoardPage() {
   const handleAddTask = async (priority, { keepOpen = false } = {}) => {
     if (!newTaskTitle.trim()) return;
     const max = getMaxForPriority(priority);
-    const currentCount = tasks.filter(t => t.priority === priority).length;
+    const currentCount = tasks.filter(t => t.priority === priority && !t.done).length;
     if (max && currentCount >= max) return;
     const title = newTaskTitle.trim();
     setNewTaskTitle('');
@@ -1034,7 +1034,7 @@ export default function TaskBoardPage() {
 
       // Check capacity (exclude the dragged task itself in case handleDragOver fires multiple times)
       const section = PRIORITY_SECTIONS.find(s => s.key === overPriority);
-      const targetCount = prev.filter(t => t.priority === overPriority && t.id !== active.id).length;
+      const targetCount = prev.filter(t => t.priority === overPriority && !t.done && t.id !== active.id).length;
       if (section?.maxTasks && targetCount >= section.maxTasks) {
         if (!capacityFlashTimer.current) {
           setCapacityFlash(overPriority);
