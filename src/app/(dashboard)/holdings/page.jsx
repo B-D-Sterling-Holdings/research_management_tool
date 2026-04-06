@@ -60,6 +60,14 @@ export default function HoldingsPage() {
   const [cash, setCash] = useState('');
   const [search, setSearch] = useState('');
 
+  // Inline edit state
+  const [editingTicker, setEditingTicker] = useState(null);
+  const [editShares, setEditShares] = useState('');
+  const [editCostBasis, setEditCostBasis] = useState('');
+
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
   const loadPortfolio = useCallback(async () => {
     try {
       const res = await fetch('/api/portfolio');
@@ -76,19 +84,31 @@ export default function HoldingsPage() {
     }
   }, [cache]);
 
+  const [quotesError, setQuotesError] = useState(null);
+
   const loadQuotes = useCallback(async (holdings) => {
     if (!holdings?.length) return;
     setQuotesLoading(true);
+    setQuotesError(null);
     try {
       const tickers = Array.from(new Set([...holdings.map(h => h.ticker), BENCHMARK_TICKER])).join(',');
       const res = await fetch(`/api/quotes?tickers=${tickers}`);
       const data = await res.json();
       if (data.quotes) {
+        // Check which holding tickers failed to get a real price
+        const failedTickers = holdings
+          .map(h => h.ticker)
+          .filter(t => !data.quotes[t]?.price);
+        if (failedTickers.length > 0) {
+          setQuotesError(`Failed to load live prices for: ${failedTickers.join(', ')}. Please reload the page.`);
+        }
         setQuotes(data.quotes);
         cache.set('holdings_quotes', data.quotes);
+      } else {
+        setQuotesError('Failed to load quotes. Please reload the page.');
       }
     } catch (e) {
-      // silent fail
+      setQuotesError('Failed to load quotes. Please reload the page.');
     } finally {
       setQuotesLoading(false);
     }
@@ -303,7 +323,6 @@ export default function HoldingsPage() {
   };
 
   const removeHolding = async (t) => {
-    if (!confirm(`Remove ${t} from your portfolio?`)) return;
     try {
       const res = await fetch(`/api/holdings?ticker=${t}`, { method: 'DELETE' });
       const data = await res.json();
@@ -314,6 +333,42 @@ export default function HoldingsPage() {
     } catch (e) {
       setToast({ message: 'Failed to remove holding', type: 'error' });
     }
+    setDeleteConfirm(null);
+  };
+
+  const startEdit = (p) => {
+    setEditingTicker(p.ticker);
+    setEditShares(String(p.shares));
+    setEditCostBasis(String(p.costBasis));
+  };
+
+  const cancelEdit = () => {
+    setEditingTicker(null);
+    setEditShares('');
+    setEditCostBasis('');
+  };
+
+  const saveEdit = async () => {
+    if (!editShares || Number(editShares) <= 0) { setToast({ message: 'Enter valid shares', type: 'error' }); return; }
+    if (!editCostBasis || Number(editCostBasis) <= 0) { setToast({ message: 'Enter valid cost basis', type: 'error' }); return; }
+    try {
+      const res = await fetch('/api/holdings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: editingTicker, shares: Number(editShares), cost_basis: Number(editCostBasis) }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPortfolio(data.portfolio);
+        setToast({ message: `${editingTicker} updated`, type: 'success' });
+        loadQuotes(data.portfolio.holdings);
+      } else {
+        setToast({ message: data.error, type: 'error' });
+      }
+    } catch (e) {
+      setToast({ message: 'Failed to update holding', type: 'error' });
+    }
+    cancelEdit();
   };
 
   const saveCash = async () => {
@@ -419,6 +474,19 @@ export default function HoldingsPage() {
         ))}
       </div>
 
+      {/* Quote fetch error banner */}
+      {quotesError && (
+        <div className="mb-6 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 animate-fade-in-up">
+          <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-amber-600 text-sm font-bold">!</span>
+          </div>
+          <p className="text-amber-800 text-sm flex-1">{quotesError}</p>
+          <button onClick={refreshAll} className="text-amber-700 hover:text-amber-900 text-sm font-semibold underline flex-shrink-0">
+            Reload
+          </button>
+        </div>
+      )}
+
       {/* ===== SUMMARY TAB ===== */}
       {activeSubTab === 'summary' && (
         <>
@@ -505,6 +573,7 @@ export default function HoldingsPage() {
                       const weight = totalAum > 0 ? (p.value / totalAum) * 100 : 0;
                       const dayIsPos = p.dailyPnl >= 0;
                       const pnlIsPos = p.unrealizedPnl >= 0;
+                      const isEditing = editingTicker === p.ticker;
                       return (
                         <tr key={p.ticker} className="border-b border-gray-50 hover:bg-white hover:shadow-[0_2px_16px_rgba(0,0,0,0.08)] hover:border-transparent relative hover:z-10 transition-all duration-200 cursor-default">
                           <td className="py-3.5 px-3">
@@ -516,8 +585,18 @@ export default function HoldingsPage() {
                           <td className="text-right py-3.5 px-3 text-gray-900 font-semibold">
                             {quotesLoaded ? formatMoney(p.value) : <div className="h-5 w-20 rounded skeleton ml-auto" />}
                           </td>
-                          <td className="text-right py-3.5 px-3 text-gray-700">{formatMoneyPrecise(p.costBasis)}</td>
-                          <td className="text-right py-3.5 px-3 text-gray-700">{p.shares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                          <td className="text-right py-3.5 px-3 text-gray-700">
+                            {isEditing ? (
+                              <input type="number" value={editCostBasis} onChange={e => setEditCostBasis(e.target.value)} step="0.01" min="0"
+                                className="w-24 bg-white border border-emerald-300 rounded-lg px-2 py-1 text-right text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500" autoFocus />
+                            ) : formatMoneyPrecise(p.costBasis)}
+                          </td>
+                          <td className="text-right py-3.5 px-3 text-gray-700">
+                            {isEditing ? (
+                              <input type="number" value={editShares} onChange={e => setEditShares(e.target.value)} step="0.01" min="0"
+                                className="w-24 bg-white border border-emerald-300 rounded-lg px-2 py-1 text-right text-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-500" />
+                            ) : p.shares.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                          </td>
                           <td className="text-right py-3.5 px-3 text-gray-900 font-medium">
                             {quotesLoaded ? formatMoneyPrecise(p.price) : <div className="h-5 w-16 rounded skeleton ml-auto" />}
                           </td>
@@ -538,9 +617,27 @@ export default function HoldingsPage() {
                             ) : <div className="h-5 w-28 rounded skeleton ml-auto" />}
                           </td>
                           <td className="text-right py-3.5 px-3">
-                            <button onClick={() => removeHolding(p.ticker)} className="text-gray-300 hover:text-red-500 transition-colors p-1" title="Remove">
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center justify-end gap-0.5">
+                              {isEditing ? (
+                                <>
+                                  <button onClick={saveEdit} className="text-emerald-500 hover:text-emerald-700 transition-colors p-1" title="Save">
+                                    <Check size={14} />
+                                  </button>
+                                  <button onClick={cancelEdit} className="text-gray-400 hover:text-gray-600 transition-colors p-1" title="Cancel">
+                                    <X size={14} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button onClick={() => startEdit(p)} className="text-gray-300 hover:text-emerald-500 transition-colors p-1" title="Edit">
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button onClick={() => setDeleteConfirm(p.ticker)} className="text-gray-300 hover:text-red-500 transition-colors p-1" title="Remove">
+                                    <Trash2 size={14} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1278,6 +1375,42 @@ export default function HoldingsPage() {
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4 animate-fade-in-up">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
+                <Trash2 size={18} className="text-red-500" />
+              </div>
+              <div>
+                <h3 className="text-gray-900 font-semibold text-base">Remove Position</h3>
+                <p className="text-gray-500 text-sm">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-gray-600 text-sm mb-6">
+              Are you sure you want to remove <span className="font-semibold text-gray-900">{deleteConfirm}</span> from your portfolio?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => removeHolding(deleteConfirm)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-xl shadow-sm hover:shadow-md transition-all"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

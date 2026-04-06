@@ -20,58 +20,67 @@ function getEffectiveMarketPrice(quote) {
   return { price: null, session: 'unknown' };
 }
 
+async function fetchSingleQuote(t) {
+  const [quote, summary] = await Promise.all([
+    yahooFinance.quote(t),
+    yahooFinance.quoteSummary(t, {
+      modules: ['financialData', 'defaultKeyStatistics', 'assetProfile'],
+    }).catch(() => null),
+  ]);
+
+  const fin = summary?.financialData || {};
+  const stats = summary?.defaultKeyStatistics || {};
+  const profile = summary?.assetProfile || {};
+
+  const { price, session } = getEffectiveMarketPrice(quote);
+  const regularMarketPrice = safeFloat(quote.regularMarketPrice);
+  const postMarketPrice = safeFloat(quote.postMarketPrice);
+  const preMarketPrice = safeFloat(quote.preMarketPrice);
+  const prev = safeFloat(quote.regularMarketPreviousClose);
+  const dayChange = (price && prev) ? price - prev : 0;
+  const dayChangePct = prev ? (dayChange / prev) * 100 : 0;
+
+  return {
+    shortName: quote.shortName || quote.longName || '',
+    exchange: quote.fullExchangeName || quote.exchange || '',
+    price,
+    regularMarketPrice,
+    postMarketPrice,
+    preMarketPrice,
+    priceSession: session,
+    previousClose: prev,
+    dayChange: Math.round(dayChange * 10000) / 10000,
+    dayChangePct: Math.round(dayChangePct * 10000) / 10000,
+    marketCap: safeFloat(quote.marketCap),
+    enterpriseValue: safeFloat(stats.enterpriseValue),
+    evToEbitda: safeFloat(stats.enterpriseToEbitda),
+    avgVolume: safeFloat(quote.averageDailyVolume3Month),
+    dividendYield: safeFloat(quote.trailingAnnualDividendYield),
+    trailingPE: safeFloat(quote.trailingPE),
+    forwardPE: safeFloat(quote.forwardPE),
+    revenueGrowth: safeFloat(fin.revenueGrowth),
+    earningsGrowth: safeFloat(fin.earningsGrowth),
+    roic: safeFloat(fin.returnOnEquity),
+    fiftyTwoWeekHigh: safeFloat(quote.fiftyTwoWeekHigh),
+    fiftyTwoWeekLow: safeFloat(quote.fiftyTwoWeekLow),
+    sector: profile.sector || '',
+  };
+}
+
 export async function fetchQuotes(tickers) {
   const result = {};
 
   for (const t of tickers) {
     try {
-      // quote() has price data but lacks EV, growth, ROE — get those from quoteSummary()
-      const [quote, summary] = await Promise.all([
-        yahooFinance.quote(t),
-        yahooFinance.quoteSummary(t, {
-          modules: ['financialData', 'defaultKeyStatistics', 'assetProfile'],
-        }).catch(() => null),
-      ]);
-
-      const fin = summary?.financialData || {};
-      const stats = summary?.defaultKeyStatistics || {};
-      const profile = summary?.assetProfile || {};
-
-      const { price, session } = getEffectiveMarketPrice(quote);
-      const regularMarketPrice = safeFloat(quote.regularMarketPrice);
-      const postMarketPrice = safeFloat(quote.postMarketPrice);
-      const preMarketPrice = safeFloat(quote.preMarketPrice);
-      const prev = safeFloat(quote.regularMarketPreviousClose);
-      const dayChange = (price && prev) ? price - prev : 0;
-      const dayChangePct = prev ? (dayChange / prev) * 100 : 0;
-
-      result[t] = {
-        shortName: quote.shortName || quote.longName || '',
-        exchange: quote.fullExchangeName || quote.exchange || '',
-        price,
-        regularMarketPrice,
-        postMarketPrice,
-        preMarketPrice,
-        priceSession: session,
-        previousClose: prev,
-        dayChange: Math.round(dayChange * 10000) / 10000,
-        dayChangePct: Math.round(dayChangePct * 10000) / 10000,
-        marketCap: safeFloat(quote.marketCap),
-        enterpriseValue: safeFloat(stats.enterpriseValue),
-        evToEbitda: safeFloat(stats.enterpriseToEbitda),
-        avgVolume: safeFloat(quote.averageDailyVolume3Month),
-        dividendYield: safeFloat(quote.trailingAnnualDividendYield),
-        trailingPE: safeFloat(quote.trailingPE),
-        forwardPE: safeFloat(quote.forwardPE),
-        revenueGrowth: safeFloat(fin.revenueGrowth),
-        earningsGrowth: safeFloat(fin.earningsGrowth),
-        roic: safeFloat(fin.returnOnEquity),
-        fiftyTwoWeekHigh: safeFloat(quote.fiftyTwoWeekHigh),
-        fiftyTwoWeekLow: safeFloat(quote.fiftyTwoWeekLow),
-        sector: profile.sector || '',
-      };
-    } catch (e) {
-      result[t] = { price: null, error: e.message };
+      result[t] = await fetchSingleQuote(t);
+    } catch (firstErr) {
+      // Retry once after a short delay — Yahoo Finance can be flaky
+      try {
+        await new Promise(r => setTimeout(r, 500));
+        result[t] = await fetchSingleQuote(t);
+      } catch (retryErr) {
+        result[t] = { price: null, error: retryErr.message };
+      }
     }
   }
 
