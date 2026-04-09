@@ -124,6 +124,7 @@ export async function GET() {
         targetWeight: note?.target_weight ?? targetWeightMap[tk] ?? null,
         expectedReturn: note?.expected_return ?? expectedReturnMap[tk] ?? null,
         attentionPriority: note?.priority || 'normal',
+        sortOrder: note?.sort_order ?? 0,
         // Research gaps
         gaps,
         completeness,

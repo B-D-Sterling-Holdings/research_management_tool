@@ -323,6 +323,7 @@ CREATE TABLE IF NOT EXISTS strategic_notes (
   expected_return NUMERIC,                  -- expected return %
   target_weight NUMERIC,                   -- target portfolio weight %
   priority TEXT DEFAULT 'normal',          -- urgent, high, normal, low
+  sort_order NUMERIC DEFAULT 0,            -- manual ordering within a priority bucket
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

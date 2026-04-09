@@ -15,7 +15,7 @@ export async function GET() {
 // POST — upsert a strategic note for a ticker
 export async function POST(request) {
   const body = await request.json();
-  const { ticker, sentiment, conviction, action, action_reason, notes, alternatives, target_weight, priority, expected_return } = body;
+  const { ticker, sentiment, conviction, action, action_reason, notes, alternatives, target_weight, priority, expected_return, sort_order } = body;
 
   if (!ticker) return NextResponse.json({ error: 'ticker required' }, { status: 400 });
 
@@ -35,6 +35,7 @@ export async function POST(request) {
     priority: priority || 'normal',
     updated_at: new Date().toISOString(),
   };
+  if (sort_order != null && !isNaN(Number(sort_order))) row.sort_order = Number(sort_order);
 
   const { data, error } = await supabase
     .from('strategic_notes')

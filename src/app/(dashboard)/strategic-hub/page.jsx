@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   ThumbsUp, Meh, CloudRain, AlertTriangle,
   Scissors, Plus, LogOut as ExitIcon, FileText, ArrowRight,
-  BarChart3, Shield, X, RefreshCw, Crosshair,
+  BarChart3, Shield, X, RefreshCw, Crosshair, ChevronUp, ChevronDown,
 } from 'lucide-react';
 
 /* ── helpers ── */
@@ -89,7 +89,7 @@ const CONVICTION_COLORS = {
 };
 
 function ConvictionDots({ level }) {
-  const dotColors = ['', 'bg-red-700', 'bg-red-400', 'bg-amber-400', 'bg-emerald-400', 'bg-emerald-600'];
+  const dotColors = ['', 'bg-red-700', 'bg-red-400', 'bg-amber-400', 'bg-green-600', 'bg-emerald-700'];
   return (
     <div className="flex items-center gap-1" title={`Conviction: ${CONVICTION_LABELS[level] || ''}`}>
       {[1, 2, 3, 4, 5].map(i => (
@@ -260,6 +260,86 @@ export default function StrategicHubPage() {
     setData(d);
   }, []);
 
+  const moveRef = useRef({ displayed: [] });
+  const rowRefs = useRef({});
+  const handleMove = useCallback(async (ticker, direction) => {
+    const displayedList = moveRef.current.displayed;
+    const idx = displayedList.findIndex(h => h.ticker === ticker);
+    if (idx < 0) return;
+    const cur = displayedList[idx];
+    let swapIdx = -1;
+    if (direction === 'up') {
+      for (let i = idx - 1; i >= 0; i--) {
+        if (displayedList[i].attentionPriority === cur.attentionPriority) { swapIdx = i; break; }
+      }
+    } else {
+      for (let i = idx + 1; i < displayedList.length; i++) {
+        if (displayedList[i].attentionPriority === cur.attentionPriority) { swapIdx = i; break; }
+      }
+    }
+    if (swapIdx < 0) return;
+    const other = displayedList[swapIdx];
+    const a = cur.sortOrder ?? 0;
+    const b = other.sortOrder ?? 0;
+    const newA = b === a ? (direction === 'up' ? a - 1 : a + 1) : b;
+    const newB = a;
+
+    // Animate the swap
+    const curEl = rowRefs.current[cur.ticker];
+    const otherEl = rowRefs.current[other.ticker];
+    if (curEl && otherEl) {
+      const curRect = curEl.getBoundingClientRect();
+      const otherRect = otherEl.getBoundingClientRect();
+      const dy = otherRect.top - curRect.top;
+      curEl.style.transition = 'transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1)';
+      otherEl.style.transition = 'transform 320ms ease-out';
+      curEl.style.transform = `translateY(${dy * 0.6}px) scale(1.02)`;
+      otherEl.style.transform = `translateY(${-dy}px)`;
+      curEl.style.zIndex = '5';
+      curEl.style.position = 'relative';
+      curEl.style.boxShadow = '0 6px 16px -8px rgba(16,185,129,0.4)';
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    setData(prev => {
+      if (!prev?.holdings) return prev;
+      return {
+        ...prev,
+        holdings: prev.holdings.map(h => {
+          if (h.ticker === cur.ticker) return { ...h, sortOrder: newA };
+          if (h.ticker === other.ticker) return { ...h, sortOrder: newB };
+          return h;
+        }),
+      };
+    });
+
+    // Reset styles next tick after re-render
+    requestAnimationFrame(() => {
+      if (curEl) {
+        curEl.style.transition = '';
+        curEl.style.transform = '';
+        curEl.style.zIndex = '';
+        curEl.style.position = '';
+        curEl.style.boxShadow = '';
+      }
+      if (otherEl) {
+        otherEl.style.transition = '';
+        otherEl.style.transform = '';
+      }
+    });
+
+    await Promise.all([
+      fetch('/api/strategic-notes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: cur.ticker, sentiment: cur.sentiment, conviction: cur.conviction, action: cur.action, notes: cur.strategicNotes, priority: cur.attentionPriority, expected_return: cur.expectedReturn, sort_order: newA }),
+      }),
+      fetch('/api/strategic-notes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: other.ticker, sentiment: other.sentiment, conviction: other.conviction, action: other.action, notes: other.strategicNotes, priority: other.attentionPriority, expected_return: other.expectedReturn, sort_order: newB }),
+      }),
+    ]);
+  }, []);
+
   // Enriched holdings with live quote data
   const enriched = useMemo(() => {
     if (!data?.holdings) return [];
@@ -300,7 +380,9 @@ export default function StrategicHubPage() {
     const sorters = {
       priority: (a, b) => {
         const order = { urgent: 0, high: 1, normal: 2, low: 3 };
-        return (order[a.attentionPriority] ?? 2) - (order[b.attentionPriority] ?? 2);
+        const d = (order[a.attentionPriority] ?? 2) - (order[b.attentionPriority] ?? 2);
+        if (d !== 0) return d;
+        return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
       },
       weight: (a, b) => b.currentWeight - a.currentWeight,
       completeness: (a, b) => a.completeness - b.completeness,
@@ -318,6 +400,8 @@ export default function StrategicHubPage() {
     return arr;
   }, [withWeights, sortBy, filterAction, filterSentiment]);
 
+  moveRef.current.displayed = displayed;
+
   const editHolding = editTicker ? withWeights.find(h => h.ticker === editTicker) : null;
 
   if (loading) {
@@ -332,7 +416,6 @@ export default function StrategicHubPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16 space-y-6">
-
       {/* ── Header ── */}
       <h1 className="text-3xl font-bold text-gray-900">Strategic Hub</h1>
 
@@ -380,10 +463,23 @@ export default function StrategicHubPage() {
             <tbody>
               {displayed.map(h => (
                 <tr key={h.ticker}
+                  ref={el => { if (el) rowRefs.current[h.ticker] = el; }}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer group"
                   onClick={() => setEditTicker(h.ticker)}>
                   <td className="py-3 pl-2">
                     <div className="flex items-center gap-2">
+                      {sortBy === 'priority' && (
+                        <div className="flex flex-col -my-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={(e) => { e.stopPropagation(); handleMove(h.ticker, 'up'); }}
+                            className="p-0.5 text-gray-400 hover:text-gray-700">
+                            <ChevronUp size={11} />
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); handleMove(h.ticker, 'down'); }}
+                            className="p-0.5 text-gray-400 hover:text-gray-700">
+                            <ChevronDown size={11} />
+                          </button>
+                        </div>
+                      )}
                       <span className="text-xs font-bold text-gray-900">{h.ticker}</span>
                       <span className="text-[10px] text-gray-400">{fmt$(h.mktVal)}</span>
                     </div>
