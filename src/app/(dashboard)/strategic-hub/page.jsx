@@ -1,0 +1,436 @@
+'use client';
+
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  ThumbsUp, Meh, CloudRain, AlertTriangle,
+  Scissors, Plus, LogOut as ExitIcon, FileText, ArrowRight,
+  BarChart3, Shield, X, RefreshCw, Crosshair,
+} from 'lucide-react';
+
+/* ── helpers ── */
+const fmt$ = v => {
+  const n = Number(v);
+  if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(2);
+};
+const pct = v => (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+
+const SENTIMENTS = [
+  { value: 'uneasy', label: 'Uneasy', color: 'red', icon: CloudRain },
+  { value: 'neutral', label: 'Neutral', color: 'amber', icon: Meh },
+  { value: 'feeling_good', label: 'Feeling Good', color: 'emerald', icon: ThumbsUp },
+];
+
+const ACTIONS = [
+  { value: 'exit', label: 'Exit', icon: ExitIcon, color: 'darkred' },
+  { value: 'trim', label: 'Trim', icon: Scissors, color: 'red' },
+  { value: 'hold', label: 'Hold', icon: Shield, color: 'amber' },
+  { value: 'add', label: 'Add', icon: Plus, color: 'emerald' },
+];
+
+const CONVICTION_LABELS = ['', 'Very Low', 'Low', 'Medium', 'High', 'Very High'];
+
+function SentimentBadge({ sentiment }) {
+  const s = SENTIMENTS.find(x => x.value === sentiment) || SENTIMENTS[1];
+  const colorMap = {
+    emerald: 'bg-emerald-100 text-emerald-700',
+    amber: 'bg-amber-100 text-amber-700',
+    red: 'bg-red-100 text-red-700',
+  };
+  const Icon = s.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${colorMap[s.color]}`}>
+      <Icon size={11} /> {s.label}
+    </span>
+  );
+}
+
+function ActionBadge({ action }) {
+  const a = ACTIONS.find(x => x.value === action) || ACTIONS[0];
+  const colorMap = {
+    emerald: 'bg-emerald-100 text-emerald-700',
+    amber: 'bg-amber-100 text-amber-700',
+    red: 'bg-red-100 text-red-600',
+    darkred: 'bg-red-200 text-red-800',
+  };
+  const Icon = a.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${colorMap[a.color]}`}>
+      <Icon size={11} /> {a.label}
+    </span>
+  );
+}
+
+const PRIORITIES = [
+  { value: 'low', label: 'Low', color: 'bg-emerald-100 text-emerald-600' },
+  { value: 'normal', label: 'Normal', color: 'bg-blue-100 text-blue-600' },
+  { value: 'high', label: 'High', color: 'bg-red-100 text-red-700' },
+  { value: 'urgent', label: 'Urgent', color: 'bg-gray-900 text-red-500' },
+];
+
+function PriorityBadge({ priority }) {
+  const p = PRIORITIES.find(x => x.value === priority) || PRIORITIES[2];
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${p.color}`}>
+      {p.label}
+    </span>
+  );
+}
+
+const CONVICTION_COLORS = {
+  1: { dot: 'bg-red-700', badge: 'bg-red-200 text-red-800 border-red-400', btn: 'bg-red-100 text-red-700 border-red-300' },
+  2: { dot: 'bg-red-400', badge: 'bg-red-100 text-red-600 border-red-300', btn: 'bg-red-50 text-red-600 border-red-200' },
+  3: { dot: 'bg-amber-400', badge: 'bg-amber-100 text-amber-700 border-amber-300', btn: 'bg-amber-100 text-amber-700 border-amber-300' },
+  4: { dot: 'bg-emerald-400', badge: 'bg-emerald-100 text-emerald-700 border-emerald-300', btn: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  5: { dot: 'bg-emerald-600', badge: 'bg-emerald-200 text-emerald-800 border-emerald-400', btn: 'bg-emerald-200 text-emerald-800 border-emerald-400' },
+};
+
+function ConvictionDots({ level }) {
+  const dotColors = ['', 'bg-red-700', 'bg-red-400', 'bg-amber-400', 'bg-emerald-400', 'bg-emerald-600'];
+  return (
+    <div className="flex items-center gap-1" title={`Conviction: ${CONVICTION_LABELS[level] || ''}`}>
+      {[1, 2, 3, 4, 5].map(i => (
+        <div key={i} className={`w-2.5 h-2.5 rounded-full ${i <= level ? dotColors[level] : 'bg-gray-200'}`} />
+      ))}
+    </div>
+  );
+}
+
+
+/* ── Edit Modal ── */
+function EditModal({ holding, onSave, onClose }) {
+  const [form, setForm] = useState({
+    sentiment: holding.sentiment || 'neutral',
+    conviction: holding.conviction ?? 3,
+    action: holding.action || 'hold',
+    action_reason: holding.actionReason || '',
+    notes: holding.strategicNotes || '',
+    priority: holding.attentionPriority ?? 'normal',
+    expected_return: holding.expectedReturn ?? '',
+  });
+  const formRef = useRef(form);
+  formRef.current = form;
+
+  const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  // Auto-save on unmount (clicking off)
+  useEffect(() => {
+    return () => { onSave(holding.ticker, formRef.current); };
+  }, [holding.ticker, onSave]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-md mx-4">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Crosshair size={16} className="text-emerald-600" />
+            <h3 className="text-sm font-bold text-gray-900">{holding.ticker} — Strategic View</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          {/* Priority */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">Priority</label>
+            <div className="flex gap-2">
+              {PRIORITIES.map(p => {
+                const active = form.priority === p.value;
+                return (
+                  <button key={p.value} onClick={() => set('priority', p.value)}
+                    className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                      active ? `${p.color} border-current` : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                    }`}>
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Sentiment */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">Sentiment</label>
+            <div className="flex gap-2">
+              {SENTIMENTS.map(s => {
+                const active = form.sentiment === s.value;
+                const Icon = s.icon;
+                const colors = {
+                  emerald: active ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'border-gray-200 text-gray-500 hover:border-emerald-200',
+                  amber: active ? 'bg-amber-100 text-amber-700 border-amber-300' : 'border-gray-200 text-gray-500 hover:border-amber-200',
+                  red: active ? 'bg-red-100 text-red-700 border-red-300' : 'border-gray-200 text-gray-500 hover:border-red-200',
+                };
+                return (
+                  <button key={s.value} onClick={() => set('sentiment', s.value)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${colors[s.color]}`}>
+                    <Icon size={13} /> {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Conviction */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">Conviction</label>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4, 5].map(level => {
+                const active = form.conviction === level;
+                const c = CONVICTION_COLORS[level];
+                return (
+                  <button key={level} onClick={() => set('conviction', level)}
+                    className={`flex-1 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                      active ? c.btn : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                    }`}>
+                    {CONVICTION_LABELS[level]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Expected Return */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">Expected Return %</label>
+            <input type="number" step="0.5" value={form.expected_return}
+              onChange={e => set('expected_return', e.target.value)}
+              placeholder="e.g. 15"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400" />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">Notes</label>
+            <textarea value={form.notes} onChange={e => set('notes', e.target.value)}
+              rows={3} placeholder="Key observations, catalysts, risks..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 resize-none" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Main Page ── */
+export default function StrategicHubPage() {
+  const router = useRouter();
+  const [data, setData] = useState(null);
+  const [quotes, setQuotes] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editTicker, setEditTicker] = useState(null);
+  const [sortBy, setSortBy] = useState('priority'); // priority | weight | completeness | sentiment | action
+  const [filterAction, setFilterAction] = useState('all');
+  const [filterSentiment, setFilterSentiment] = useState('all');
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/strategic-hub');
+      const d = await res.json();
+      setData(d);
+
+      // Fetch quotes for live prices
+      if (d.holdings?.length) {
+        const tickers = d.holdings.map(h => h.ticker).join(',');
+        const qRes = await fetch(`/api/quotes?tickers=${tickers}`);
+        const qData = await qRes.json();
+        setQuotes(qData.quotes || qData);
+      }
+    } catch {
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSaveNote = useCallback(async (ticker, form) => {
+    await fetch('/api/strategic-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, ...form }),
+    });
+    // Refresh data
+    const res = await fetch('/api/strategic-hub');
+    const d = await res.json();
+    setData(d);
+  }, []);
+
+  // Enriched holdings with live quote data
+  const enriched = useMemo(() => {
+    if (!data?.holdings) return [];
+    return data.holdings.map(h => {
+      const q = quotes?.[h.ticker];
+      const price = q?.price || 0;
+      const mktVal = h.shares * price;
+      const costVal = h.shares * h.costBasis;
+      const gl = mktVal - costVal;
+      const glPct = costVal > 0 ? (gl / costVal) * 100 : 0;
+      const dayChange = q?.dayChangePct || 0;
+      return { ...h, price, mktVal, costVal, gl, glPct, dayChange, sector: q?.sector || '' };
+    });
+  }, [data, quotes]);
+
+  // Total portfolio value
+  const totalValue = useMemo(() => {
+    return enriched.reduce((s, h) => s + h.mktVal, 0) + (data?.cash || 0);
+  }, [enriched, data]);
+
+  // Add current weight to each holding
+  const withWeights = useMemo(() => {
+    return enriched.map(h => ({
+      ...h,
+      currentWeight: totalValue > 0 ? (h.mktVal / totalValue) * 100 : 0,
+      weightDelta: h.targetWeight != null && totalValue > 0
+        ? (h.mktVal / totalValue) * 100 - h.targetWeight
+        : null,
+    }));
+  }, [enriched, totalValue]);
+
+  // Filter & sort
+  const displayed = useMemo(() => {
+    let arr = [...withWeights];
+    if (filterAction !== 'all') arr = arr.filter(h => h.action === filterAction);
+    if (filterSentiment !== 'all') arr = arr.filter(h => h.sentiment === filterSentiment);
+
+    const sorters = {
+      priority: (a, b) => {
+        const order = { urgent: 0, high: 1, normal: 2, low: 3 };
+        return (order[a.attentionPriority] ?? 2) - (order[b.attentionPriority] ?? 2);
+      },
+      weight: (a, b) => b.currentWeight - a.currentWeight,
+      completeness: (a, b) => a.completeness - b.completeness,
+      sentiment: (a, b) => {
+        const order = { uneasy: 0, neutral: 1, feeling_good: 2 };
+        return (order[a.sentiment] ?? 1) - (order[b.sentiment] ?? 1);
+      },
+      action: (a, b) => {
+        const order = { exit: 0, trim: 1, watch: 2, hold: 3, add: 4 };
+        return (order[a.action] ?? 3) - (order[b.action] ?? 3);
+      },
+      gl: (a, b) => a.glPct - b.glPct,
+    };
+    arr.sort(sorters[sortBy] || sorters.priority);
+    return arr;
+  }, [withWeights, sortBy, filterAction, filterSentiment]);
+
+  const editHolding = editTicker ? withWeights.find(h => h.ticker === editTicker) : null;
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16">
+        <div className="flex items-center justify-center h-64">
+          <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-6 lg:px-12 pb-16 space-y-6">
+
+      {/* ── Header ── */}
+      <h1 className="text-3xl font-bold text-gray-900">Strategic Hub</h1>
+
+      {/* ── Full Position Grid ── */}
+      <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+            <BarChart3 size={13} className="text-emerald-500" />
+            Position Overview
+          </h2>
+          <div className="flex items-center gap-2">
+            {/* Filters */}
+            <select value={filterSentiment} onChange={e => setFilterSentiment(e.target.value)}
+              className="text-[11px] font-medium text-gray-600 bg-gray-50 border-0 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-500/30">
+              <option value="all">All Sentiment</option>
+              <option value="feeling_good">Feeling Good</option>
+              <option value="neutral">Neutral</option>
+              <option value="uneasy">Uneasy</option>
+            </select>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+              className="text-[11px] font-medium text-gray-600 bg-gray-50 border-0 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-500/30">
+              <option value="priority">Sort: Priority</option>
+              <option value="weight">Sort: Weight</option>
+              <option value="gl">Sort: P&L</option>
+              <option value="sentiment">Sort: Sentiment</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2 pl-2">Ticker</th>
+                <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">Priority</th>
+                <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">Sentiment</th>
+                <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">Conv.</th>
+                <th className="text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">Weight</th>
+                <th className="text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">Exp. Return</th>
+                <th className="text-right text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2">P&L</th>
+                <th className="text-left text-[10px] font-semibold text-gray-400 uppercase tracking-wider pb-2 pl-8 pr-2" style={{ width: '260px' }}>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map(h => (
+                <tr key={h.ticker}
+                  className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                  onClick={() => setEditTicker(h.ticker)}>
+                  <td className="py-3 pl-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-900">{h.ticker}</span>
+                      <span className="text-[10px] text-gray-400">{fmt$(h.mktVal)}</span>
+                    </div>
+                  </td>
+                  <td className="py-3"><PriorityBadge priority={h.attentionPriority} /></td>
+                  <td className="py-3"><SentimentBadge sentiment={h.sentiment} /></td>
+                  <td className="py-3"><ConvictionDots level={h.conviction} /></td>
+                  <td className="py-3 text-right">
+                    <span className="text-xs font-semibold text-gray-800 tabular-nums">{h.currentWeight.toFixed(1)}%</span>
+                  </td>
+                  <td className="py-3 text-right">
+                    {h.expectedReturn != null ? (
+                      <span className={`text-xs font-semibold tabular-nums ${
+                        h.expectedReturn < 5 ? 'text-red-500'
+                        : h.expectedReturn < 10 ? 'text-amber-500'
+                        : h.expectedReturn <= 15 ? 'text-green-600'
+                        : 'text-emerald-700 font-bold'
+                      }`}>
+                        {pct(h.expectedReturn)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="py-3 text-right">
+                    <span className={`text-xs font-semibold tabular-nums ${h.glPct >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {pct(h.glPct)}
+                    </span>
+                  </td>
+                  <td className="py-3 pl-8 pr-2" style={{ width: '260px', maxWidth: '260px' }}>
+                    {h.strategicNotes ? (
+                      <div className="text-[11px] text-gray-500 truncate" style={{ width: '240px' }} title={h.strategicNotes}>{h.strategicNotes}</div>
+                    ) : (
+                      <span className="text-[10px] text-gray-300">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Edit Modal ── */}
+      {editHolding && (
+        <EditModal holding={editHolding} onSave={handleSaveNote} onClose={() => setEditTicker(null)} />
+      )}
+    </div>
+  );
+}
